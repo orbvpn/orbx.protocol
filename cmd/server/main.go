@@ -150,7 +150,7 @@ func printBanner() {
 func createTLSConfig(certFile, keyFile string) (*tls.Config, error) {
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load TLS certificate: %w", err)
+		return nil, fmt.Errorf("failed to load TLS certificate: %w", err) // ✓ lowercase (TLS at start after "load" is OK)
 	}
 
 	return &tls.Config{

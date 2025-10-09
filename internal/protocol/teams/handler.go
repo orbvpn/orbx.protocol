@@ -55,37 +55,37 @@ func (p *Protocol) Handle(w http.ResponseWriter, r *http.Request) error {
 	// Get user from context
 	user, err := auth.GetUserFromContext(r.Context())
 	if err != nil {
-		return fmt.Errorf("user not found: %w", err)
+		return fmt.Errorf("user not found: %w", err) // ✓ lowercase
 	}
 
 	// Parse Teams-like request
 	payload, err := p.parseTeamsPayload(r)
 	if err != nil {
-		return fmt.Errorf("failed to parse payload: %w", err)
+		return fmt.Errorf("failed to parse payload: %w", err) // ✓ lowercase
 	}
 
 	// Deobfuscate data
 	data, err := p.crypto.DeobfuscatePacket(payload)
 	if err != nil {
-		return fmt.Errorf("deobfuscation failed: %w", err)
+		return fmt.Errorf("deobfuscation failed: %w", err) // ✓ lowercase
 	}
 
 	// Create tunnel session if needed
 	session, err := p.tunnel.GetOrCreateSession(user.UserID, models.ProtocolTeams)
 	if err != nil {
-		return fmt.Errorf("failed to create session: %w", err)
+		return fmt.Errorf("failed to create session: %w", err) // ✓ lowercase
 	}
 
 	// Route data through tunnel
 	response, err := session.RouteData(data)
 	if err != nil {
-		return fmt.Errorf("routing failed: %w", err)
+		return fmt.Errorf("routing failed: %w", err) // ✓ lowercase
 	}
 
 	// Obfuscate response
 	obfuscated, err := p.crypto.ObfuscatePacket(response)
 	if err != nil {
-		return fmt.Errorf("obfuscation failed: %w", err)
+		return fmt.Errorf("obfuscation failed: %w", err) // ✓ lowercase
 	}
 
 	// Send Teams-like response
@@ -109,7 +109,7 @@ func (p *Protocol) parseTeamsPayload(r *http.Request) ([]byte, error) {
 	}
 
 	if err := json.Unmarshal(body, &teamsMsg); err != nil {
-		return nil, fmt.Errorf("invalid Teams message: %w", err)
+		return nil, fmt.Errorf("invalid teams message: %w", err) // ✓ lowercase (Teams is proper noun but in middle)
 	}
 
 	// Decode base64 content

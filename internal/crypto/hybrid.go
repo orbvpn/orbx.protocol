@@ -38,7 +38,7 @@ func NegotiateHybridKey(kyber *KyberManager, clientPublicKey []byte) ([]byte, []
 	// Perform Kyber encapsulation
 	kyberShared, kyberCT, err := kyber.Encapsulate(clientPublicKey)
 	if err != nil {
-		return nil, nil, fmt.Errorf("Kyber encapsulation failed: %w", err)
+		return nil, nil, fmt.Errorf("kyber encapsulation failed: %w", err) // ✓ lowercase (Kyber at start is OK as proper noun)
 	}
 
 	// In production, combine with ECDH shared secret

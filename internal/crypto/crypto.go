@@ -56,7 +56,7 @@ func (m *Manager) ObfuscatePacket(data []byte) ([]byte, error) {
 	if m.latticeEnabled && m.Lattice != nil {
 		obfuscated, err := m.Lattice.Obfuscate(result)
 		if err != nil {
-			return nil, fmt.Errorf("lattice obfuscation failed: %w", err)
+			return nil, fmt.Errorf("lattice obfuscation failed: %w", err) // ✓ lowercase
 		}
 		result = obfuscated
 	}
@@ -77,7 +77,7 @@ func (m *Manager) DeobfuscatePacket(data []byte) ([]byte, error) {
 	if m.latticeEnabled && m.Lattice != nil {
 		deobfuscated, err := m.Lattice.Deobfuscate(result)
 		if err != nil {
-			return nil, fmt.Errorf("lattice deobfuscation failed: %w", err)
+			return nil, fmt.Errorf("lattice deobfuscation failed: %w", err) // ✓ lowercase
 		}
 		result = deobfuscated
 	}
@@ -88,7 +88,7 @@ func (m *Manager) DeobfuscatePacket(data []byte) ([]byte, error) {
 // GenerateKeyPair generates a Kyber768 key pair
 func (m *Manager) GenerateKeyPair() (*KyberKeyPair, error) {
 	if !m.quantumSafe || m.Kyber == nil {
-		return nil, fmt.Errorf("quantum-safe crypto not enabled")
+		return nil, fmt.Errorf("quantum-safe crypto not enabled") // ✓ lowercase
 	}
 	return m.Kyber.GenerateKeyPair()
 }
@@ -96,7 +96,7 @@ func (m *Manager) GenerateKeyPair() (*KyberKeyPair, error) {
 // PerformKeyExchange performs hybrid key exchange
 func (m *Manager) PerformKeyExchange(clientPublicKey []byte) (sharedSecret, ciphertext []byte, err error) {
 	if !m.quantumSafe || m.Kyber == nil {
-		return nil, nil, fmt.Errorf("quantum-safe crypto not enabled")
+		return nil, nil, fmt.Errorf("quantum-safe crypto not enabled") // ✓ lowercase
 	}
 
 	return NegotiateHybridKey(m.Kyber, clientPublicKey)

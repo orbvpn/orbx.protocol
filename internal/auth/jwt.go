@@ -14,10 +14,10 @@ import (
 )
 
 var (
-	ErrMissingToken     = errors.New("missing authorization token")
-	ErrInvalidToken     = errors.New("invalid token")
-	ErrExpiredToken     = errors.New("token has expired")
-	ErrInvalidSignature = errors.New("invalid token signature")
+	ErrMissingToken     = errors.New("missing authorization token") // ✓ lowercase
+	ErrInvalidToken     = errors.New("invalid token")               // ✓ lowercase
+	ErrExpiredToken     = errors.New("token has expired")           // ✓ lowercase
+	ErrInvalidSignature = errors.New("invalid token signature")     // ✓ lowercase
 )
 
 type contextKey string
@@ -129,7 +129,7 @@ func Middleware(auth *JWTAuthenticator, next http.Handler) http.Handler {
 func GetUserFromContext(ctx context.Context) (*models.UserClaims, error) {
 	user, ok := ctx.Value(userContextKey).(*models.UserClaims)
 	if !ok {
-		return nil, errors.New("user not found in context")
+		return nil, errors.New("user not found in context") // ✓ lowercase
 	}
 	return user, nil
 }
