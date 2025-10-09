@@ -1,0 +1,48 @@
+# Binaries
+orbx-server
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# Environment files
+.env
+.env.local
+
+# Configuration files with secrets
+configs/config.local.yaml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Certificates
+*.crt
+*.key
+*.pem
+
+# Logs
+*.log
+logs/
+
+# Build artifacts
+bin/
+dist/
+build/

@@ -1,0 +1,31 @@
+# OrbX Server Configuration
+
+server:
+  port: "8443"
+  host: "0.0.0.0"
+  cert_file: "/etc/orbx/tls.crt"
+  key_file: "/etc/orbx/tls.key"
+  read_timeout: 30s
+  write_timeout: 30s
+  idle_timeout: 120s
+
+jwt:
+  secret: "your-jwt-secret-from-orbnet"  # Override with JWT_SECRET env var
+
+orbnet:
+  endpoint: "https://api.orbvpn.com/graphql"
+  api_key: "your-api-key"  # Override with ORBNET_API_KEY env var
+
+crypto:
+  quantum_safe: true
+  lattice_enabled: true
+  timing_enabled: true
+
+azure:
+  keyvault_url: ""  # Optional: Azure Key Vault URL
+  tenant_id: ""     # Optional: Azure tenant ID
+  client_id: ""     # Optional: Azure client ID
+
+logging:
+  level: "info"     # debug, info, warn, error
+  format: "json"    # json or text
