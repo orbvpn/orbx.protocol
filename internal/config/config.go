@@ -133,10 +133,10 @@ func (c *Config) Validate() error {
 
 // Errors
 var (
-	ErrMissingJWTSecret      = &ConfigError{"JWT secret is required"}
-	ErrMissingOrbNetEndpoint = &ConfigError{"OrbNet endpoint is required"}
-	ErrMissingCertFile       = &ConfigError{"TLS certificate file is required"}
-	ErrMissingKeyFile        = &ConfigError{"TLS key file is required"}
+	ErrMissingJWTSecret      = &ConfigError{"JWT secret is required"}           // JWT is acronym, OK
+	ErrMissingOrbNetEndpoint = &ConfigError{"OrbNet endpoint is required"}      // OrbNet is proper noun, OK
+	ErrMissingCertFile       = &ConfigError{"TLS certificate file is required"} // TLS is acronym, OK
+	ErrMissingKeyFile        = &ConfigError{"TLS key file is required"}         // TLS is acronym, OK
 )
 
 // ConfigError represents a configuration error
@@ -145,5 +145,5 @@ type ConfigError struct {
 }
 
 func (e *ConfigError) Error() string {
-	return "config error: " + e.Message
+	return "config error: " + e.Message // ✓ lowercase
 }

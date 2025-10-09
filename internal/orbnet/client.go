@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/orbvpn/orbx-server/pkg/models"
+	"github.com/orbvpn/orbx.protocol/pkg/models"
 )
 
 // Client handles communication with OrbNet GraphQL API

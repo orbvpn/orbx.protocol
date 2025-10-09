@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/orbvpn/orbx-server/pkg/models"
+	"github.com/orbvpn/orbx.protocol/pkg/models"
 )
 
 var (

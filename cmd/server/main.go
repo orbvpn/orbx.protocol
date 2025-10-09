@@ -13,12 +13,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/orbvpn/orbx-server/internal/auth"
-	"github.com/orbvpn/orbx-server/internal/config"
-	"github.com/orbvpn/orbx-server/internal/crypto"
-	"github.com/orbvpn/orbx-server/internal/orbnet"
-	"github.com/orbvpn/orbx-server/internal/protocol"
-	"github.com/orbvpn/orbx-server/internal/tunnel"
+	"github.com/orbvpn/orbx.protocol/internal/auth"
+	"github.com/orbvpn/orbx.protocol/internal/config"
+	"github.com/orbvpn/orbx.protocol/internal/crypto"
+	"github.com/orbvpn/orbx.protocol/internal/orbnet"
+	"github.com/orbvpn/orbx.protocol/internal/protocol"
+	"github.com/orbvpn/orbx.protocol/internal/tunnel"
 )
 
 var (

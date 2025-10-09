@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/orbvpn/orbx-server/internal/config"
+	"github.com/orbvpn/orbx.protocol/internal/config"
 )
 
 // Manager handles all cryptographic operations

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 
+	"github.com/cloudflare/circl/kem"
 	"github.com/cloudflare/circl/kem/kyber/kyber768"
 )
 
@@ -16,13 +17,13 @@ type KyberKeyPair struct {
 
 // KyberManager handles Kyber768 post-quantum key exchange
 type KyberManager struct {
-	scheme *kyber768.Scheme
+	scheme kem.Scheme // Changed from *kyber768.Scheme to kem.Scheme
 }
 
 // NewKyberManager creates a new Kyber manager
 func NewKyberManager() *KyberManager {
 	return &KyberManager{
-		scheme: kyber768.Scheme(),
+		scheme: kyber768.Scheme(), // Call the function to get the scheme
 	}
 }
 

@@ -5,13 +5,13 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/orbvpn/orbx-server/internal/config"
-	"github.com/orbvpn/orbx-server/internal/crypto"
-	"github.com/orbvpn/orbx-server/internal/protocol/doh"
-	"github.com/orbvpn/orbx-server/internal/protocol/https"
-	"github.com/orbvpn/orbx-server/internal/protocol/shaparak"
-	"github.com/orbvpn/orbx-server/internal/protocol/teams"
-	"github.com/orbvpn/orbx-server/internal/tunnel"
+	"github.com/orbvpn/orbx.protocol/internal/config"
+	"github.com/orbvpn/orbx.protocol/internal/crypto"
+	"github.com/orbvpn/orbx.protocol/internal/protocol/doh"
+	"github.com/orbvpn/orbx.protocol/internal/protocol/https"
+	"github.com/orbvpn/orbx.protocol/internal/protocol/shaparak"
+	"github.com/orbvpn/orbx.protocol/internal/protocol/teams"
+	"github.com/orbvpn/orbx.protocol/internal/tunnel"
 )
 
 // Router routes requests to appropriate protocol handlers

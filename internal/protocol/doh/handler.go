@@ -7,10 +7,10 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/orbvpn/orbx-server/internal/auth"
-	"github.com/orbvpn/orbx-server/internal/crypto"
-	"github.com/orbvpn/orbx-server/internal/tunnel"
-	"github.com/orbvpn/orbx-server/pkg/models"
+	"github.com/orbvpn/orbx.protocol/internal/auth"
+	"github.com/orbvpn/orbx.protocol/internal/crypto"
+	"github.com/orbvpn/orbx.protocol/internal/tunnel"
+	"github.com/orbvpn/orbx.protocol/pkg/models"
 )
 
 // Protocol implements DNS over HTTPS
