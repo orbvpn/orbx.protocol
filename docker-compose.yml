@@ -1,0 +1,21 @@
+version: "3.8"
+
+services:
+  orbx-server:
+    build: .
+    ports:
+      - "8443:8443"
+    environment:
+      - JWT_SECRET=${JWT_SECRET}
+      - ORBNET_API_KEY=${ORBNET_API_KEY}
+      - ORBNET_ENDPOINT=${ORBNET_ENDPOINT}
+    volumes:
+      - ./certs:/etc/orbx/certs:ro
+      - ./configs:/etc/orbx:ro
+    restart: unless-stopped
+    networks:
+      - orbnet
+
+networks:
+  orbnet:
+    driver: bridge
