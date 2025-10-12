@@ -1,0 +1,373 @@
+name: Deploy OrbX to Azure
+
+on:
+  push:
+    branches:
+      - main
+      - production
+    paths:
+      - 'cmd/**'
+      - 'internal/**'
+      - 'pkg/**'
+      - 'configs/**'
+      - 'Dockerfile'
+      - 'go.mod'
+      - 'go.sum'
+  
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      deploy_all_regions:
+        description: 'Deploy to all 30 regions'
+        required: true
+        type: boolean
+        default: false
+      test_only:
+        description: 'Test deployment only (single region)'
+        required: true
+        type: boolean
+        default: true
+
+env:
+  ACR_NAME: orbxregistry
+  IMAGE_NAME: orbx-protocol
+  KEYVAULT_NAME: orbx-vault
+
+jobs:
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      
+      - name: Login to Azure Container Registry
+        run: |
+          az acr login --name ${{ env.ACR_NAME }}
+      
+      - name: Get version from git
+        id: version
+        run: |
+          echo "VERSION=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "TIMESTAMP=$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+      
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest
+            ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}
+            ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.TIMESTAMP }}
+          cache-from: type=registry,ref=${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:buildcache,mode=max
+          build-args: |
+            VERSION=${{ steps.version.outputs.VERSION }}
+            BUILD_TIME=${{ steps.version.outputs.TIMESTAMP }}
+
+  test-deployment:
+    name: Test Single Region Deployment
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event.inputs.test_only == 'true' || github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      
+      - name: Get secrets from Key Vault
+        id: secrets
+        run: |
+          JWT_SECRET=$(az keyvault secret show --vault-name ${{ env.KEYVAULT_NAME }} --name "JWT-SECRET" --query value -o tsv)
+          ORBNET_API_KEY=$(az keyvault secret show --vault-name ${{ env.KEYVAULT_NAME }} --name "ORBNET-API-KEY" --query value -o tsv)
+          ORBNET_ENDPOINT=$(az keyvault secret show --vault-name ${{ env.KEYVAULT_NAME }} --name "ORBNET-ENDPOINT" --query value -o tsv)
+          ACR_USERNAME=$(az keyvault secret show --vault-name ${{ env.KEYVAULT_NAME }} --name "ACR-USERNAME" --query value -o tsv)
+          ACR_PASSWORD=$(az keyvault secret show --vault-name ${{ env.KEYVAULT_NAME }} --name "ACR-PASSWORD" --query value -o tsv)
+          
+          echo "::add-mask::$JWT_SECRET"
+          echo "::add-mask::$ORBNET_API_KEY"
+          echo "::add-mask::$ACR_PASSWORD"
+          
+          echo "JWT_SECRET=$JWT_SECRET" >> $GITHUB_OUTPUT
+          echo "ORBNET_API_KEY=$ORBNET_API_KEY" >> $GITHUB_OUTPUT
+          echo "ORBNET_ENDPOINT=$ORBNET_ENDPOINT" >> $GITHUB_OUTPUT
+          echo "ACR_USERNAME=$ACR_USERNAME" >> $GITHUB_OUTPUT
+          echo "ACR_PASSWORD=$ACR_PASSWORD" >> $GITHUB_OUTPUT
+      
+      - name: Deploy test container
+        run: |
+          TEST_REGION="eastus"
+          RESOURCE_GROUP="orbx-${TEST_REGION}-test-rg"
+          CONTAINER_NAME="orbx-${TEST_REGION}-test"
+          DNS_NAME="orbx-test-${TEST_REGION}-${{ github.run_number }}"
+          
+          # Create resource group
+          az group create \
+            --name $RESOURCE_GROUP \
+            --location $TEST_REGION \
+            --tags Environment=Test RunID=${{ github.run_number }}
+          
+          # Deploy container
+          az container create \
+            --resource-group $RESOURCE_GROUP \
+            --name $CONTAINER_NAME \
+            --image ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest \
+            --dns-name-label $DNS_NAME \
+            --ports 8443 \
+            --protocol TCP \
+            --cpu 2 \
+            --memory 4 \
+            --registry-login-server ${{ env.ACR_NAME }}.azurecr.io \
+            --registry-username ${{ steps.secrets.outputs.ACR_USERNAME }} \
+            --registry-password ${{ steps.secrets.outputs.ACR_PASSWORD }} \
+            --environment-variables \
+              ORBNET_ENDPOINT="${{ steps.secrets.outputs.ORBNET_ENDPOINT }}" \
+              SERVER_REGION="$TEST_REGION" \
+            --secure-environment-variables \
+              JWT_SECRET="${{ steps.secrets.outputs.JWT_SECRET }}" \
+              ORBNET_API_KEY="${{ steps.secrets.outputs.ORBNET_API_KEY }}" \
+            --restart-policy Always
+          
+          # Wait for container to start
+          sleep 30
+          
+          # Get FQDN
+          FQDN=$(az container show \
+            --resource-group $RESOURCE_GROUP \
+            --name $CONTAINER_NAME \
+            --query "ipAddress.fqdn" \
+            --output tsv)
+          
+          echo "TEST_FQDN=$FQDN" >> $GITHUB_ENV
+          echo "TEST_RESOURCE_GROUP=$RESOURCE_GROUP" >> $GITHUB_ENV
+      
+      - name: Test health endpoint
+        run: |
+          HEALTH_URL="https://${TEST_FQDN}:8443/health"
+          echo "Testing health endpoint: $HEALTH_URL"
+          
+          # Retry up to 5 times
+          for i in {1..5}; do
+            if response=$(curl -k -s -m 10 "$HEALTH_URL" 2>/dev/null); then
+              if echo "$response" | grep -q "healthy"; then
+                echo "✅ Health check passed!"
+                echo "$response"
+                exit 0
+              fi
+            fi
+            echo "Attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
+          
+          echo "❌ Health check failed after 5 attempts"
+          exit 1
+      
+      - name: Cleanup test deployment
+        if: always()
+        run: |
+          if [ -n "$TEST_RESOURCE_GROUP" ]; then
+            az group delete --name $TEST_RESOURCE_GROUP --yes --no-wait
+          fi
+
+  deploy-all-regions:
+    name: Deploy to All 30 Regions
+    needs: test-deployment
+    runs-on: ubuntu-latest
+    if: |
+      (github.event.inputs.deploy_all_regions == 'true' || github.ref == 'refs/heads/production') 
+      && needs.test-deployment.result == 'success'
+    
+    strategy:
+      max-parallel: 10
+      fail-fast: false
+      matrix:
+        region:
+          - eastus
+          - westus
+          - centralus
+          - canadacentral
+          - northeurope
+          - westeurope
+          - uksouth
+          - francecentral
+          - germanywestcentral
+          - swedencentral
+          - switzerlandnorth
+          - italynorth
+          - southeastasia
+          - eastasia
+          - japaneast
+          - koreacentral
+          - australiaeast
+          - centralindia
+          - uaenorth
+          - southafricanorth
+          - qatarcentral
+          - israelcentral
+          - brazilsouth
+          - norwayeast
+          - polandcentral
+          - spaincentral
+          - mexicocentral
+          - southindia
+          - westus3
+          - australiasoutheast
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      
+      - name: Get secrets from Key Vault
+        id: secrets
+        run: |
+          JWT_SECRET=$(az keyvault secret show --vault-name ${{ env.KEYVAULT_NAME }} --name "JWT-SECRET" --query value -o tsv)
+          ORBNET_API_KEY=$(az keyvault secret show --vault-name ${{ env.KEYVAULT_NAME }} --name "ORBNET-API-KEY" --query value -o tsv)
+          ORBNET_ENDPOINT=$(az keyvault secret show --vault-name ${{ env.KEYVAULT_NAME }} --name "ORBNET-ENDPOINT" --query value -o tsv)
+          ACR_USERNAME=$(az keyvault secret show --vault-name ${{ env.KEYVAULT_NAME }} --name "ACR-USERNAME" --query value -o tsv)
+          ACR_PASSWORD=$(az keyvault secret show --vault-name ${{ env.KEYVAULT_NAME }} --name "ACR-PASSWORD" --query value -o tsv)
+          
+          echo "::add-mask::$JWT_SECRET"
+          echo "::add-mask::$ORBNET_API_KEY"
+          echo "::add-mask::$ACR_PASSWORD"
+          
+          echo "JWT_SECRET=$JWT_SECRET" >> $GITHUB_OUTPUT
+          echo "ORBNET_API_KEY=$ORBNET_API_KEY" >> $GITHUB_OUTPUT
+          echo "ORBNET_ENDPOINT=$ORBNET_ENDPOINT" >> $GITHUB_OUTPUT
+          echo "ACR_USERNAME=$ACR_USERNAME" >> $GITHUB_OUTPUT
+          echo "ACR_PASSWORD=$ACR_PASSWORD" >> $GITHUB_OUTPUT
+      
+      - name: Deploy to ${{ matrix.region }}
+        run: |
+          RESOURCE_GROUP="orbx-${{ matrix.region }}-rg"
+          CONTAINER_NAME="orbx-${{ matrix.region }}"
+          DNS_NAME="orbx-${{ matrix.region }}"
+          
+          # Create or update resource group
+          az group create \
+            --name $RESOURCE_GROUP \
+            --location ${{ matrix.region }} \
+            --tags Environment=Production Region=${{ matrix.region }}
+          
+          # Check if container exists
+          if az container show --resource-group $RESOURCE_GROUP --name $CONTAINER_NAME &>/dev/null; then
+            echo "Container exists, deleting and recreating..."
+            az container delete \
+              --resource-group $RESOURCE_GROUP \
+              --name $CONTAINER_NAME \
+              --yes
+            sleep 10
+          fi
+          
+          # Deploy container
+          az container create \
+            --resource-group $RESOURCE_GROUP \
+            --name $CONTAINER_NAME \
+            --image ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest \
+            --dns-name-label $DNS_NAME \
+            --ports 8443 \
+            --protocol TCP \
+            --cpu 2 \
+            --memory 4 \
+            --registry-login-server ${{ env.ACR_NAME }}.azurecr.io \
+            --registry-username ${{ steps.secrets.outputs.ACR_USERNAME }} \
+            --registry-password ${{ steps.secrets.outputs.ACR_PASSWORD }} \
+            --environment-variables \
+              ORBNET_ENDPOINT="${{ steps.secrets.outputs.ORBNET_ENDPOINT }}" \
+              SERVER_REGION="${{ matrix.region }}" \
+            --secure-environment-variables \
+              JWT_SECRET="${{ steps.secrets.outputs.JWT_SECRET }}" \
+              ORBNET_API_KEY="${{ steps.secrets.outputs.ORBNET_API_KEY }}" \
+            --restart-policy Always
+          
+          # Get FQDN
+          FQDN=$(az container show \
+            --resource-group $RESOURCE_GROUP \
+            --name $CONTAINER_NAME \
+            --query "ipAddress.fqdn" \
+            --output tsv)
+          
+          echo "✅ Deployed to ${{ matrix.region }}: https://$FQDN:8443"
+
+  verify-deployment:
+    name: Verify All Deployments
+    needs: deploy-all-regions
+    runs-on: ubuntu-latest
+    if: needs.deploy-all-regions.result == 'success'
+    
+    steps:
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      
+      - name: Test all regions
+        run: |
+          REGIONS=(eastus westus centralus canadacentral northeurope westeurope uksouth francecentral germanywestcentral swedencentral switzerlandnorth italynorth southeastasia eastasia japaneast koreacentral australiaeast centralindia uaenorth southafricanorth qatarcentral israelcentral brazilsouth norwayeast polandcentral spaincentral mexicocentral southindia westus3 australiasoutheast)
+          
+          TOTAL=0
+          HEALTHY=0
+          UNHEALTHY=0
+          
+          for region in "${REGIONS[@]}"; do
+            RESOURCE_GROUP="orbx-${region}-rg"
+            CONTAINER_NAME="orbx-${region}"
+            
+            FQDN=$(az container show \
+              --resource-group $RESOURCE_GROUP \
+              --name $CONTAINER_NAME \
+              --query "ipAddress.fqdn" \
+              --output tsv 2>/dev/null || echo "")
+            
+            if [ -z "$FQDN" ]; then
+              echo "❌ $region: Not deployed"
+              ((UNHEALTHY++))
+              continue
+            fi
+            
+            ((TOTAL++))
+            
+            if response=$(curl -k -s -m 10 "https://$FQDN:8443/health" 2>/dev/null); then
+              if echo "$response" | grep -q "healthy"; then
+                echo "✅ $region: Healthy"
+                ((HEALTHY++))
+              else
+                echo "❌ $region: Unhealthy"
+                ((UNHEALTHY++))
+              fi
+            else
+              echo "❌ $region: Unreachable"
+              ((UNHEALTHY++))
+            fi
+          done
+          
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Total: $TOTAL"
+          echo "Healthy: $HEALTHY"
+          echo "Unhealthy: $UNHEALTHY"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          if [ $UNHEALTHY -gt 0 ]; then
+            exit 1
+          fi
