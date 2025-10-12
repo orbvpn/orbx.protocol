@@ -1,6 +1,4 @@
 package wireguard
-// internal/protocol/wireguard/handler.go
-package wireguard
 
 import (
 	"context"
@@ -13,20 +11,19 @@ import (
 	"github.com/orbvpn/orbx.protocol/pkg/models"
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun"
 )
 
 // Handler manages WireGuard connections
 type Handler struct {
-	config      *models.WireGuardConfig
-	device      *device.Device
-	tunIface    *network.TunInterface
-	ipPool      *network.IPPool
-	router      *network.Router
-	peers       map[string]*models.WireGuardPeer
-	peersMu     sync.RWMutex
-	ctx         context.Context
-	cancel      context.CancelFunc
+	config   *models.WireGuardConfig
+	device   *device.Device
+	tunIface *network.TunInterface
+	ipPool   *network.IPPool
+	router   *network.Router
+	peers    map[string]*models.WireGuardPeer
+	peersMu  sync.RWMutex
+	ctx      context.Context
+	cancel   context.CancelFunc
 }
 
 // NewHandler creates a new WireGuard handler

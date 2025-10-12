@@ -71,7 +71,7 @@ func (p *Protocol) Handle(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Create tunnel session if needed
-	session, err := p.tunnel.GetOrCreateSession(user.UserID, models.ProtocolTeams)
+	session, err := p.tunnel.GetOrCreateSession(user.UserID, string(models.ProtocolTeams))
 	if err != nil {
 		return fmt.Errorf("failed to create session: %w", err) // ✓ lowercase
 	}
