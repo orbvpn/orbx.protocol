@@ -112,7 +112,7 @@ func main() {
 	// Start server in goroutine
 	go func() {
 		log.Printf("🚀 OrbX Server starting on %s", server.Addr)
-		log.Printf("📡 Protocols: Teams, Shaparak, DoH, HTTPS")
+		log.Printf("📡 Protocols: Teams, Google, Shaparak, DoH, HTTPS")
 		log.Printf("🔐 Quantum-safe: %v", cfg.Crypto.QuantumSafe)
 
 		if err := server.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
