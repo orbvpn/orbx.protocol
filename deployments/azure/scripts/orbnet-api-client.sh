@@ -57,7 +57,21 @@ orbnet_register_server() {
         }
     }'
     
-    local input="{\"name\":\"$server_name\",\"ipAddress\":\"$ip\",\"port\":$port,\"location\":\"$location\",\"country\":\"$country\",\"region\":\"$region\",\"protocols\":[\"teams\",\"shaparak\",\"doh\",\"https\",\"google-meet\"],\"maxConnections\":1000}"
+    # Generate default hostname from region
+    local default_hostname="orbx-${region}.orbvpn.com"
+    
+    local input="{
+        \"name\":\"$server_name\",
+        \"region\":\"$region\",
+        \"hostname\":\"$default_hostname\",
+        \"ipAddress\":\"$ip\",
+        \"port\":$port,
+        \"location\":\"$location\",
+        \"country\":\"$country\",
+        \"protocols\":[\"wireguard\",\"teams\",\"shaparak\",\"doh\",\"https\",\"google-meet\"],
+        \"maxConnections\":1000
+    }"
+    
     local response=$(curl -s -X POST "$ORBNET_ENDPOINT" \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer $admin_token" \
@@ -65,6 +79,7 @@ orbnet_register_server() {
     
     if echo "$response" | jq -e '.errors' >/dev/null 2>&1; then
         echo -e "${RED}❌ Registration failed${NC}"
+        echo "$response" | jq '.errors' >&2
         return 1
     fi
     
@@ -82,16 +97,63 @@ orbnet_update_server() {
     local server_id=$2
     local fqdn=$3
     
+    echo -e "${YELLOW}🔄 Updating server with FQDN...${NC}"
+    
     local query='mutation UpdateOrbXServer($id: ID!, $input: OrbXServerInput!) {
-        updateOrbXServer(id: $id, input: $input) { id }
+        updateOrbXServer(id: $id, input: $input) { 
+            id 
+            name 
+            hostname
+        }
     }'
+    
+    local input="{\"ipAddress\":\"$fqdn\"}"
     
     local response=$(curl -s -X POST "$ORBNET_ENDPOINT" \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer $admin_token" \
-        -d "$(jq -n --arg q "$query" --arg id "$server_id" --arg ip "$fqdn" '{query:$q,variables:{id:$id,input:{ipAddress:$ip}}}')")
+        -d "$(jq -n --arg q "$query" --arg id "$server_id" --argjson i "$input" '{query:$q,variables:{id:$id,input:$i}}')")
+    
+    if echo "$response" | jq -e '.errors' >/dev/null 2>&1; then
+        echo -e "${RED}❌ Update failed${NC}"
+        return 1
+    fi
     
     echo -e "${GREEN}✅ Updated with FQDN${NC}"
+}
+
+# NEW FUNCTION - Update both hostname and IP
+orbnet_update_server_full() {
+    local admin_token=$1
+    local server_id=$2
+    local hostname=$3
+    local ip_address=$4
+    
+    echo -e "${YELLOW}🔄 Updating server hostname and IP...${NC}"
+    
+    local query='mutation UpdateOrbXServer($id: ID!, $input: OrbXServerInput!) {
+        updateOrbXServer(id: $id, input: $input) {
+            id
+            name
+            hostname
+            ipAddress
+        }
+    }'
+    
+    local input="{\"hostname\":\"$hostname\",\"ipAddress\":\"$ip_address\"}"
+    
+    local response=$(curl -s -X POST "$ORBNET_ENDPOINT" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $admin_token" \
+        -d "$(jq -n --arg q "$query" --arg id "$server_id" --argjson i "$input" '{query:$q,variables:{id:$id,input:$i}}')")
+    
+    if echo "$response" | jq -e '.errors' >/dev/null 2>&1; then
+        echo -e "${RED}❌ Update failed${NC}"
+        echo "$response" | jq '.errors' >&2
+        return 1
+    fi
+    
+    echo -e "${GREEN}✅ Updated: Hostname=$hostname, IP=$ip_address${NC}"
 }
 
 orbnet_check_server_exists() {
@@ -103,6 +165,10 @@ orbnet_check_server_exists() {
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer $admin_token" \
         -d "$(jq -n --arg q "$query" '{query:$q}')")
+    
+    if echo "$response" | jq -e '.errors' >/dev/null 2>&1; then
+        return 1
+    fi
     
     local server_id=$(echo "$response" | jq -r ".data.orbxServers[]|select(.name==\"$server_name\")|.id")
     
@@ -117,11 +183,11 @@ orbnet_regenerate_credentials() {
     local admin_token=$1
     local server_id=$2
     
-    echo -e "${YELLOW}🔄 Regenerating credentials...${NC}"
+    echo -e "${YELLOW}🔄 Regenerating credentials for server $server_id...${NC}"
     
     local query='mutation RegenerateOrbXServerCredentials($id: ID!) {
         regenerateOrbXServerCredentials(id: $id) {
-            server { id }
+            server { id name }
             apiKey
             jwtSecret
         }
@@ -133,14 +199,64 @@ orbnet_regenerate_credentials() {
         -d "$(jq -n --arg q "$query" --arg id "$server_id" '{query:$q,variables:{id:$id}}')")
     
     if echo "$response" | jq -e '.errors' >/dev/null 2>&1; then
-        echo -e "${RED}❌ Failed${NC}"
+        echo -e "${RED}❌ Regeneration failed${NC}"
+        echo "$response" | jq '.errors' >&2
         return 1
     fi
     
     local api_key=$(echo "$response" | jq -r '.data.regenerateOrbXServerCredentials.apiKey')
     local jwt_secret=$(echo "$response" | jq -r '.data.regenerateOrbXServerCredentials.jwtSecret')
     
-    echo -e "${GREEN}✅ Regenerated${NC}"
+    echo -e "${GREEN}✅ Credentials regenerated${NC}"
     jq -n --arg sid "$server_id" --arg key "$api_key" --arg jwt "$jwt_secret" \
         '{server_id:$sid,api_key:$key,jwt_secret:$jwt}'
+}
+
+# NEW FUNCTION - Get server by region
+orbnet_get_server_by_region() {
+    local admin_token=$1
+    local region=$2
+    
+    local query='query { orbxServers { id name region } }'
+    local response=$(curl -s -X POST "$ORBNET_ENDPOINT" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $admin_token" \
+        -d "$(jq -n --arg q "$query" '{query:$q}')")
+    
+    if echo "$response" | jq -e '.errors' >/dev/null 2>&1; then
+        return 1
+    fi
+    
+    local server_id=$(echo "$response" | jq -r ".data.orbxServers[]|select(.region==\"$region\")|.id")
+    
+    if [ -n "$server_id" ] && [ "$server_id" != "null" ]; then
+        echo "$server_id"
+        return 0
+    fi
+    return 1
+}
+
+# NEW FUNCTION - Update server status
+orbnet_update_server_status() {
+    local admin_token=$1
+    local server_id=$2
+    local online=$3  # true or false
+    
+    local query='mutation UpdateOrbXServerStatus($id: ID!, $online: Boolean!) {
+        updateOrbXServerStatus(serverId: $id, online: $online) {
+            id
+            online
+        }
+    }'
+    
+    local response=$(curl -s -X POST "$ORBNET_ENDPOINT" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $admin_token" \
+        -d "$(jq -n --arg q "$query" --arg id "$server_id" --argjson online "$online" '{query:$q,variables:{id:$id,online:$online}}')")
+    
+    if echo "$response" | jq -e '.errors' >/dev/null 2>&1; then
+        return 1
+    fi
+    
+    return 0
 }

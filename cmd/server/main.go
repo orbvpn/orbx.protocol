@@ -1,9 +1,10 @@
-// cmd/server/main.go
+// cmd/server/main.go (UPDATED)
 package main
 
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -69,9 +70,12 @@ func main() {
 	log.Println("Initializing tunnel manager...")
 	tunnelManager := tunnel.NewManager(ctx, orbnetClient)
 
-	// Initialize protocol router
+	// Initialize protocol router (includes WireGuard)
 	log.Println("Initializing protocol handlers...")
-	protocolRouter := protocol.NewRouter(cfg, cryptoManager, tunnelManager)
+	protocolRouter, err := protocol.NewRouter(cfg, cryptoManager, tunnelManager)
+	if err != nil {
+		log.Fatalf("Failed to initialize protocol router: %v", err)
+	}
 
 	// Create TLS configuration
 	tlsConfig, err := createTLSConfig(cfg.Server.CertFile, cfg.Server.KeyFile)
@@ -88,16 +92,26 @@ func main() {
 	// Metrics endpoint
 	mux.HandleFunc("/metrics", handleMetrics(tunnelManager))
 
-	// Protocol endpoints (Teams, Shaparak, DoH, HTTPS)
+	// Protocol endpoints (Teams, Shaparak, DoH, HTTPS, Google)
 	mux.Handle("/teams/", auth.Middleware(jwtAuth, protocolRouter.HandleTeams()))
 	mux.Handle("/shaparak/", auth.Middleware(jwtAuth, protocolRouter.HandleShaparak()))
 	mux.Handle("/dns-query", auth.Middleware(jwtAuth, protocolRouter.HandleDoH()))
-	mux.Handle("/", auth.Middleware(jwtAuth, protocolRouter.HandleHTTPS()))
+	mux.Handle("/google/", auth.Middleware(jwtAuth, protocolRouter.HandleGoogle()))
 
 	// Google Workspace endpoints
 	mux.Handle("/drive/", auth.Middleware(jwtAuth, protocolRouter.HandleGoogle()))
 	mux.Handle("/meet/", auth.Middleware(jwtAuth, protocolRouter.HandleGoogle()))
 	mux.Handle("/calendar/", auth.Middleware(jwtAuth, protocolRouter.HandleGoogle()))
+
+	// WireGuard management endpoints
+	if cfg.WireGuard.Enabled {
+		mux.HandleFunc("/wireguard/connect", auth.MiddlewareFunc(jwtAuth, handleWireGuardConnect(protocolRouter)))
+		mux.HandleFunc("/wireguard/disconnect", auth.MiddlewareFunc(jwtAuth, handleWireGuardDisconnect(protocolRouter)))
+		mux.HandleFunc("/wireguard/status", auth.MiddlewareFunc(jwtAuth, handleWireGuardStatus(protocolRouter)))
+	}
+
+	// Fallback handler (HTTPS)
+	mux.Handle("/", auth.Middleware(jwtAuth, protocolRouter.HandleHTTPS()))
 
 	// Create server
 	server := &http.Server{
@@ -112,7 +126,13 @@ func main() {
 	// Start server in goroutine
 	go func() {
 		log.Printf("🚀 OrbX Server starting on %s", server.Addr)
-		log.Printf("📡 Protocols: Teams, Google, Shaparak, DoH, HTTPS")
+
+		// Build protocol list
+		protocols := "Teams, Google, Shaparak, DoH, HTTPS"
+		if cfg.WireGuard.Enabled {
+			protocols = "WireGuard, " + protocols
+		}
+		log.Printf("📡 Protocols: %s", protocols)
 		log.Printf("🔐 Quantum-safe: %v", cfg.Crypto.QuantumSafe)
 
 		if err := server.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
@@ -138,6 +158,11 @@ func main() {
 	// Stop tunnel manager
 	tunnelManager.Stop()
 
+	// Stop protocol router (closes WireGuard)
+	if err := protocolRouter.Close(); err != nil {
+		log.Printf("Error closing protocol router: %v", err)
+	}
+
 	log.Println("Server exited")
 }
 
@@ -155,7 +180,7 @@ func printBanner() {
 func createTLSConfig(certFile, keyFile string) (*tls.Config, error) {
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load TLS certificate: %w", err) // ✓ lowercase (TLS at start after "load" is OK)
+		return nil, fmt.Errorf("failed to load TLS certificate: %w", err)
 	}
 
 	return &tls.Config{
@@ -198,5 +223,93 @@ func handleMetrics(tm *tunnel.Manager) http.HandlerFunc {
 			metrics.TotalBytesReceived,
 			int(metrics.Uptime.Seconds()),
 		)
+	}
+}
+
+// WireGuard management handlers
+func handleWireGuardConnect(router *protocol.Router) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Get user from context
+		user, err := auth.GetUserFromContext(r.Context())
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Parse request
+		var req struct {
+			PublicKey string `json:"publicKey"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+
+		// Add peer to WireGuard
+		wgHandler := router.GetWireGuardHandler()
+		if wgHandler == nil {
+			http.Error(w, "WireGuard not enabled", http.StatusServiceUnavailable)
+			return
+		}
+
+		ip, err := wgHandler.AddPeer(fmt.Sprintf("%d", user.UserID), req.PublicKey)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to add peer: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Return client configuration
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"ip":      ip.String(),
+			"gateway": wgHandler.GetGateway().String(),
+			"dns":     wgHandler.GetDNS(),
+			"mtu":     wgHandler.GetMTU(),
+		})
+	}
+}
+
+func handleWireGuardDisconnect(router *protocol.Router) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, err := auth.GetUserFromContext(r.Context())
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		wgHandler := router.GetWireGuardHandler()
+		if wgHandler == nil {
+			http.Error(w, "WireGuard not enabled", http.StatusServiceUnavailable)
+			return
+		}
+
+		if err := wgHandler.RemovePeer(fmt.Sprintf("%d", user.UserID)); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to remove peer: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"disconnected"}`))
+	}
+}
+
+func handleWireGuardStatus(router *protocol.Router) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, err := auth.GetUserFromContext(r.Context())
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		wgHandler := router.GetWireGuardHandler()
+		if wgHandler == nil {
+			http.Error(w, "WireGuard not enabled", http.StatusServiceUnavailable)
+			return
+		}
+
+		status := wgHandler.GetPeerStatus(fmt.Sprintf("%d", user.UserID))
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(status)
 	}
 }

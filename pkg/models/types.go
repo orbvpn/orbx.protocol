@@ -37,15 +37,6 @@ type ServerConfig struct {
 	Region         string   `json:"region"`
 }
 
-// Protocol types
-const (
-	ProtocolTeams    = "teams"
-	ProtocolShaparak = "shaparak"
-	ProtocolDoH      = "doh"
-	ProtocolHTTPS    = "https"
-	ProtocolGoogle   = "google"
-)
-
 // Subscription tiers
 const (
 	TierBasic   = "basic"

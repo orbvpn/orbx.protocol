@@ -10,12 +10,13 @@ import (
 
 // Config represents the complete server configuration
 type Config struct {
-	Server  ServerConfig  `yaml:"server"`
-	JWT     JWTConfig     `yaml:"jwt"`
-	OrbNet  OrbNetConfig  `yaml:"orbnet"`
-	Crypto  CryptoConfig  `yaml:"crypto"`
-	Azure   AzureConfig   `yaml:"azure"`
-	Logging LoggingConfig `yaml:"logging"`
+	Server    ServerConfig    `yaml:"server"`
+	JWT       JWTConfig       `yaml:"jwt"`
+	OrbNet    OrbNetConfig    `yaml:"orbnet"`
+	Crypto    CryptoConfig    `yaml:"crypto"`
+	Azure     AzureConfig     `yaml:"azure"`
+	Logging   LoggingConfig   `yaml:"logging"`
+	WireGuard WireGuardConfig `yaml:"wireguard"` // ✅ ADDED
 }
 
 // ServerConfig contains server-specific settings
@@ -38,6 +39,7 @@ type JWTConfig struct {
 type OrbNetConfig struct {
 	Endpoint string `yaml:"endpoint"`
 	APIKey   string `yaml:"api_key"`
+	ServerID string `yaml:"server_id"` // ✅ ADDED for heartbeat
 }
 
 // CryptoConfig contains cryptography settings
@@ -58,6 +60,17 @@ type AzureConfig struct {
 type LoggingConfig struct {
 	Level  string `yaml:"level"`
 	Format string `yaml:"format"`
+}
+
+// WireGuardConfig contains WireGuard settings
+type WireGuardConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	Interface  string `yaml:"interface"`
+	Address    string `yaml:"address"`     // e.g., "10.8.0.1/24"
+	ListenPort int    `yaml:"listen_port"` // e.g., 51820
+	PrivateKey string `yaml:"private_key"` // Optional, will generate if empty
+	PublicKey  string `yaml:"public_key"`  // Optional, will generate if empty
+	MTU        int    `yaml:"mtu"`         // Default: 1420
 }
 
 // Load reads configuration from file and environment variables
@@ -84,8 +97,22 @@ func Load(path string) (*Config, error) {
 	if apiKey := os.Getenv("ORBNET_API_KEY"); apiKey != "" {
 		cfg.OrbNet.APIKey = apiKey
 	}
+	if serverID := os.Getenv("ORBNET_SERVER_ID"); serverID != "" {
+		cfg.OrbNet.ServerID = serverID
+	}
 	if kvURL := os.Getenv("AZURE_KEYVAULT_URL"); kvURL != "" {
 		cfg.Azure.KeyVaultURL = kvURL
+	}
+
+	// WireGuard environment variables
+	if wgEnabled := os.Getenv("WIREGUARD_ENABLED"); wgEnabled != "" {
+		cfg.WireGuard.Enabled = wgEnabled == "true"
+	}
+	if wgPrivKey := os.Getenv("WG_PRIVATE_KEY"); wgPrivKey != "" {
+		cfg.WireGuard.PrivateKey = wgPrivKey
+	}
+	if wgPubKey := os.Getenv("WG_PUBLIC_KEY"); wgPubKey != "" {
+		cfg.WireGuard.PublicKey = wgPubKey
 	}
 
 	// Set defaults
@@ -111,6 +138,20 @@ func Load(path string) (*Config, error) {
 		cfg.Logging.Format = "json"
 	}
 
+	// WireGuard defaults
+	if cfg.WireGuard.Interface == "" {
+		cfg.WireGuard.Interface = "wg0"
+	}
+	if cfg.WireGuard.Address == "" {
+		cfg.WireGuard.Address = "10.8.0.1/24"
+	}
+	if cfg.WireGuard.ListenPort == 0 {
+		cfg.WireGuard.ListenPort = 51820
+	}
+	if cfg.WireGuard.MTU == 0 {
+		cfg.WireGuard.MTU = 1420
+	}
+
 	return &cfg, nil
 }
 
@@ -133,10 +174,10 @@ func (c *Config) Validate() error {
 
 // Errors
 var (
-	ErrMissingJWTSecret      = &ConfigError{"JWT secret is required"}           // JWT is acronym, OK
-	ErrMissingOrbNetEndpoint = &ConfigError{"OrbNet endpoint is required"}      // OrbNet is proper noun, OK
-	ErrMissingCertFile       = &ConfigError{"TLS certificate file is required"} // TLS is acronym, OK
-	ErrMissingKeyFile        = &ConfigError{"TLS key file is required"}         // TLS is acronym, OK
+	ErrMissingJWTSecret      = &ConfigError{"JWT secret is required"}
+	ErrMissingOrbNetEndpoint = &ConfigError{"OrbNet endpoint is required"}
+	ErrMissingCertFile       = &ConfigError{"TLS certificate file is required"}
+	ErrMissingKeyFile        = &ConfigError{"TLS key file is required"}
 )
 
 // ConfigError represents a configuration error
@@ -145,5 +186,5 @@ type ConfigError struct {
 }
 
 func (e *ConfigError) Error() string {
-	return "config error: " + e.Message // ✓ lowercase
+	return "config error: " + e.Message
 }

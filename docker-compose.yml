@@ -3,18 +3,29 @@ version: "3.8"
 services:
   orbx-server:
     build: .
+    privileged: true # Required for WireGuard
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
     ports:
       - "8443:8443"
+      - "51820:51820/udp" # WireGuard port
     environment:
       - JWT_SECRET=${JWT_SECRET}
       - ORBNET_API_KEY=${ORBNET_API_KEY}
       - ORBNET_ENDPOINT=${ORBNET_ENDPOINT}
+      - ORBNET_SERVER_ID=${ORBNET_SERVER_ID}
+      - WIREGUARD_ENABLED=true
     volumes:
       - ./certs:/etc/orbx/certs:ro
       - ./configs:/etc/orbx:ro
+      - /lib/modules:/lib/modules:ro
     restart: unless-stopped
     networks:
       - orbnet
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
 
 networks:
   orbnet:
