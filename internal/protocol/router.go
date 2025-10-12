@@ -8,6 +8,7 @@ import (
 	"github.com/orbvpn/orbx.protocol/internal/config"
 	"github.com/orbvpn/orbx.protocol/internal/crypto"
 	"github.com/orbvpn/orbx.protocol/internal/protocol/doh"
+	"github.com/orbvpn/orbx.protocol/internal/protocol/google" // ADD THIS
 	"github.com/orbvpn/orbx.protocol/internal/protocol/https"
 	"github.com/orbvpn/orbx.protocol/internal/protocol/shaparak"
 	"github.com/orbvpn/orbx.protocol/internal/protocol/teams"
@@ -20,6 +21,7 @@ type Router struct {
 	shaparakHandler *Handler
 	dohHandler      *Handler
 	httpsHandler    *Handler
+	googleHandler   *Handler // ADD THIS
 
 	ctx context.Context
 }
@@ -33,6 +35,7 @@ func NewRouter(cfg *config.Config, cryptoMgr *crypto.Manager, tunnelMgr *tunnel.
 		shaparakHandler: NewHandler(shaparak.NewProtocol(cryptoMgr, tunnelMgr), ctx),
 		dohHandler:      NewHandler(doh.NewProtocol(cryptoMgr, tunnelMgr), ctx),
 		httpsHandler:    NewHandler(https.NewProtocol(cryptoMgr, tunnelMgr), ctx),
+		googleHandler:   NewHandler(google.NewProtocol(cryptoMgr, tunnelMgr), ctx), // ADD THIS
 		ctx:             ctx,
 	}
 }
@@ -55,4 +58,9 @@ func (r *Router) HandleDoH() http.Handler {
 // HandleHTTPS returns the fragmented HTTPS handler
 func (r *Router) HandleHTTPS() http.Handler {
 	return r.httpsHandler
+}
+
+// HandleGoogle returns the Google Workspace handler
+func (r *Router) HandleGoogle() http.Handler { // ADD THIS METHOD
+	return r.googleHandler
 }

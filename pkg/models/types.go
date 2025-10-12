@@ -43,6 +43,7 @@ const (
 	ProtocolShaparak = "shaparak"
 	ProtocolDoH      = "doh"
 	ProtocolHTTPS    = "https"
+	ProtocolGoogle   = "google"
 )
 
 // Subscription tiers

@@ -6,10 +6,13 @@ Post-quantum VPN obfuscation server with protocol mimicry for censorship circumv
 
 - 🔐 **Post-Quantum Cryptography**: Kyber768 key exchange + hybrid TLS
 - 🎭 **Protocol Mimicry**:
+
   - Microsoft Teams
+  - Google Workspace (Drive, Meet, Calendar)
   - Shaparak (Iranian Banking)
   - DNS over HTTPS (DoH)
   - Fragmented HTTPS
+
 - 🌐 **Lattice-Based Obfuscation**: Traffic pattern obfuscation
 - ⏱️ **Timing Channel Protection**: Random delays and packet splitting
 - 📊 **Usage Tracking**: Integrated with OrbNet GraphQL API
@@ -124,6 +127,12 @@ bashPOST /teams/messages
 Authorization: Bearer <jwt-token>
 Content-Type: application/json
 X-Ms-Client-Version: 27/1.0.0.2024
+POST /drive/files
+POST /meet/join
+POST /calendar/events
+Authorization: Bearer <jwt-token>
+Content-Type: application/json
+X-Goog-Api-Client: gl-go/1.20.0 gdcl/0.110.0
 Shaparak Protocol
 bashPOST /shaparak/transaction
 Authorization: Bearer <jwt-token>

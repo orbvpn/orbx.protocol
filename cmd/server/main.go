@@ -94,6 +94,11 @@ func main() {
 	mux.Handle("/dns-query", auth.Middleware(jwtAuth, protocolRouter.HandleDoH()))
 	mux.Handle("/", auth.Middleware(jwtAuth, protocolRouter.HandleHTTPS()))
 
+	// Google Workspace endpoints
+	mux.Handle("/drive/", auth.Middleware(jwtAuth, protocolRouter.HandleGoogle()))
+	mux.Handle("/meet/", auth.Middleware(jwtAuth, protocolRouter.HandleGoogle()))
+	mux.Handle("/calendar/", auth.Middleware(jwtAuth, protocolRouter.HandleGoogle()))
+
 	// Create server
 	server := &http.Server{
 		Addr:         cfg.Server.Host + ":" + cfg.Server.Port,
