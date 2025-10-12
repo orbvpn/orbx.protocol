@@ -1,4 +1,4 @@
-// cmd/server/main.go (UPDATED)
+// cmd/server/main.go
 package main
 
 import (
@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"orbx-protocol/internal/heartbeat"
 	"os"
 	"os/signal"
 	"syscall"
@@ -79,7 +78,7 @@ func main() {
 		log.Fatalf("Failed to initialize protocol router: %v", err)
 	}
 
-	// ✅ ADD: Initialize heartbeat service
+	// Initialize heartbeat service
 	if cfg.WireGuard.Enabled {
 		log.Println("Initializing heartbeat service...")
 		hb := heartbeat.NewService(cfg, protocolRouter.GetWireGuardHandler())
@@ -113,7 +112,7 @@ func main() {
 	mux.Handle("/meet/", auth.Middleware(jwtAuth, protocolRouter.HandleGoogle()))
 	mux.Handle("/calendar/", auth.Middleware(jwtAuth, protocolRouter.HandleGoogle()))
 
-	// WireGuard management endpoints
+	// WireGuard management endpoints (called by OrbNet)
 	if cfg.WireGuard.Enabled {
 		mux.HandleFunc("/wireguard/add-peer", handleWireGuardAddPeer(protocolRouter))
 		mux.HandleFunc("/wireguard/remove-peer", handleWireGuardRemovePeer(protocolRouter))
@@ -321,50 +320,5 @@ func handleWireGuardServerStatus(router *protocol.Router) http.HandlerFunc {
 			"publicKey": wgMgr.GetPublicKey(),
 			"peerCount": wgMgr.GetPeerCount(),
 		})
-	}
-}
-
-func handleWireGuardDisconnect(router *protocol.Router) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user, err := auth.GetUserFromContext(r.Context())
-		if err != nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		wgHandler := router.GetWireGuardHandler()
-		if wgHandler == nil {
-			http.Error(w, "WireGuard not enabled", http.StatusServiceUnavailable)
-			return
-		}
-
-		if err := wgHandler.RemovePeer(fmt.Sprintf("%d", user.UserID)); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to remove peer: %v", err), http.StatusInternalServerError)
-			return
-		}
-
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"disconnected"}`))
-	}
-}
-
-func handleWireGuardStatus(router *protocol.Router) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user, err := auth.GetUserFromContext(r.Context())
-		if err != nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		wgHandler := router.GetWireGuardHandler()
-		if wgHandler == nil {
-			http.Error(w, "WireGuard not enabled", http.StatusServiceUnavailable)
-			return
-		}
-
-		status := wgHandler.GetPeerStatus(fmt.Sprintf("%d", user.UserID))
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(status)
 	}
 }
