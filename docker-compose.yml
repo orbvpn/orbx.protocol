@@ -18,7 +18,7 @@ services:
       - WIREGUARD_ENABLED=true
     volumes:
       - ./certs:/etc/orbx/certs:ro
-      - ./configs:/etc/orbx:ro
+      - ./configs/config.yaml:/etc/orbx/config.yaml:ro
       - /lib/modules:/lib/modules:ro
     restart: unless-stopped
     networks:

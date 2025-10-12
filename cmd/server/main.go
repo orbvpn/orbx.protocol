@@ -148,7 +148,7 @@ func main() {
 		log.Printf("🚀 OrbX Server starting on %s", server.Addr)
 
 		// Build protocol list
-		protocols := "WireGuard, Teams, Google, Shaparak, DoH, HTTPS, Zoom, FaceTime, VK, Yandex, WeChat"
+		protocols := "Teams, Google, Shaparak, DoH, HTTPS, Zoom, FaceTime, VK, Yandex, WeChat"
 		if cfg.WireGuard.Enabled {
 			protocols = "WireGuard, " + protocols
 		}
