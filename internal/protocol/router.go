@@ -10,10 +10,15 @@ import (
 	"github.com/orbvpn/orbx.protocol/internal/config"
 	"github.com/orbvpn/orbx.protocol/internal/crypto"
 	"github.com/orbvpn/orbx.protocol/internal/protocol/doh"
+	"github.com/orbvpn/orbx.protocol/internal/protocol/facetime"
 	"github.com/orbvpn/orbx.protocol/internal/protocol/google"
 	"github.com/orbvpn/orbx.protocol/internal/protocol/https"
 	"github.com/orbvpn/orbx.protocol/internal/protocol/shaparak"
 	"github.com/orbvpn/orbx.protocol/internal/protocol/teams"
+	"github.com/orbvpn/orbx.protocol/internal/protocol/vk"
+	"github.com/orbvpn/orbx.protocol/internal/protocol/wechat"
+	"github.com/orbvpn/orbx.protocol/internal/protocol/yandex"
+	"github.com/orbvpn/orbx.protocol/internal/protocol/zoom"
 	"github.com/orbvpn/orbx.protocol/internal/tunnel"
 	"github.com/orbvpn/orbx.protocol/internal/wireguard"
 )
@@ -26,6 +31,11 @@ type Router struct {
 	dohHandler      *Handler
 	httpsHandler    *Handler
 	googleHandler   *Handler
+	zoomHandler     *Handler
+	facetimeHandler *Handler
+	vkHandler       *Handler
+	wechatHandler   *Handler
+	yandexHandler   *Handler
 
 	// VPN protocol handler
 	wireguardManager *wireguard.Manager // ✅ Use Manager, not Handler
@@ -43,6 +53,11 @@ func NewRouter(cfg *config.Config, cryptoMgr *crypto.Manager, tunnelMgr *tunnel.
 		dohHandler:      NewHandler(doh.NewProtocol(cryptoMgr, tunnelMgr), ctx),
 		httpsHandler:    NewHandler(https.NewProtocol(cryptoMgr, tunnelMgr), ctx),
 		googleHandler:   NewHandler(google.NewProtocol(cryptoMgr, tunnelMgr), ctx),
+		zoomHandler:     NewHandler(zoom.NewProtocol(cryptoMgr, tunnelMgr), ctx),
+		facetimeHandler: NewHandler(facetime.NewProtocol(cryptoMgr, tunnelMgr), ctx),
+		vkHandler:       NewHandler(vk.NewProtocol(cryptoMgr, tunnelMgr), ctx),
+		wechatHandler:   NewHandler(wechat.NewProtocol(cryptoMgr, tunnelMgr), ctx),
+		yandexHandler:   NewHandler(yandex.NewProtocol(cryptoMgr, tunnelMgr), ctx),
 		ctx:             ctx,
 	}
 
@@ -92,6 +107,31 @@ func (r *Router) HandleGoogle() http.Handler {
 // GetWireGuardHandler returns the WireGuard manager (for peer management)
 func (r *Router) GetWireGuardHandler() *wireguard.Manager {
 	return r.wireguardManager
+}
+
+// HandleZoom returns the Zoom protocol handler
+func (r *Router) HandleZoom() http.Handler {
+	return r.zoomHandler
+}
+
+// HandleFaceTime returns the FaceTime protocol handler
+func (r *Router) HandleFaceTime() http.Handler {
+	return r.facetimeHandler
+}
+
+// HandleVK returns the VK protocol handler
+func (r *Router) HandleVK() http.Handler {
+	return r.vkHandler
+}
+
+// HandleWeChat returns the WeChat protocol handler
+func (r *Router) HandleWeChat() http.Handler {
+	return r.wechatHandler
+}
+
+// HandleYandex returns the Yandex protocol handler
+func (r *Router) HandleYandex() http.Handler {
+	return r.yandexHandler
 }
 
 // Close shuts down all protocol handlers

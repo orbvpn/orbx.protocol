@@ -112,6 +112,17 @@ func main() {
 	mux.Handle("/meet/", auth.Middleware(jwtAuth, protocolRouter.HandleGoogle()))
 	mux.Handle("/calendar/", auth.Middleware(jwtAuth, protocolRouter.HandleGoogle()))
 
+	// Video conferencing protocols
+	mux.Handle("/zoom/", auth.Middleware(jwtAuth, protocolRouter.HandleZoom()))
+	mux.Handle("/facetime/", auth.Middleware(jwtAuth, protocolRouter.HandleFaceTime()))
+
+	// Russian services
+	mux.Handle("/vk/", auth.Middleware(jwtAuth, protocolRouter.HandleVK()))
+	mux.Handle("/yandex/", auth.Middleware(jwtAuth, protocolRouter.HandleYandex()))
+
+	// Chinese services
+	mux.Handle("/wechat/", auth.Middleware(jwtAuth, protocolRouter.HandleWeChat()))
+
 	// WireGuard management endpoints (called by OrbNet)
 	if cfg.WireGuard.Enabled {
 		mux.HandleFunc("/wireguard/add-peer", handleWireGuardAddPeer(protocolRouter))
@@ -137,7 +148,7 @@ func main() {
 		log.Printf("🚀 OrbX Server starting on %s", server.Addr)
 
 		// Build protocol list
-		protocols := "Teams, Google, Shaparak, DoH, HTTPS"
+		protocols := "WireGuard, Teams, Google, Shaparak, DoH, HTTPS, Zoom, FaceTime, VK, Yandex, WeChat"
 		if cfg.WireGuard.Enabled {
 			protocols = "WireGuard, " + protocols
 		}

@@ -5,22 +5,33 @@ package models
 type ProtocolType string
 
 const (
+	// Existing
 	ProtocolTeams    ProtocolType = "teams"
 	ProtocolShaparak ProtocolType = "shaparak"
 	ProtocolDoH      ProtocolType = "doh"
 	ProtocolHTTPS    ProtocolType = "https"
 	ProtocolGoogle   ProtocolType = "google"
+
+	// NEW - Video/Conferencing
+	ProtocolZoom     ProtocolType = "zoom"
+	ProtocolFaceTime ProtocolType = "facetime"
+
+	// NEW - Russia
+	ProtocolVK     ProtocolType = "vk"
+	ProtocolYandex ProtocolType = "yandex"
+
+	// NEW - China
+	ProtocolWeChat ProtocolType = "wechat"
 )
 
-// VPNProtocolType represents the actual VPN protocol inside the disguise
 type VPNProtocolType string
 
 const (
-	VPNProtocolOrbX        VPNProtocolType = "orbx"        // Native (future)
-	VPNProtocolWireGuard   VPNProtocolType = "wireguard"   // NEW
-	VPNProtocolVLESS       VPNProtocolType = "vless"       // Future
-	VPNProtocolREALITY     VPNProtocolType = "reality"     // Future
-	VPNProtocolOpenConnect VPNProtocolType = "openconnect" // Future
+	VPNProtocolWireGuard   VPNProtocolType = "wireguard"
+	VPNProtocolOrbX        VPNProtocolType = "orbx"
+	VPNProtocolVLESS       VPNProtocolType = "vless"
+	VPNProtocolREALITY     VPNProtocolType = "reality"
+	VPNProtocolOpenConnect VPNProtocolType = "openconnect"
 )
 
 // WireGuardConfig holds WireGuard-specific configuration
