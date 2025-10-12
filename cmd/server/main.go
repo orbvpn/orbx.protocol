@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"orbx-protocol/internal/heartbeat"
 	"os"
 	"os/signal"
 	"syscall"
@@ -17,6 +18,7 @@ import (
 	"github.com/orbvpn/orbx.protocol/internal/auth"
 	"github.com/orbvpn/orbx.protocol/internal/config"
 	"github.com/orbvpn/orbx.protocol/internal/crypto"
+	"github.com/orbvpn/orbx.protocol/internal/heartbeat"
 	"github.com/orbvpn/orbx.protocol/internal/orbnet"
 	"github.com/orbvpn/orbx.protocol/internal/protocol"
 	"github.com/orbvpn/orbx.protocol/internal/tunnel"
@@ -77,6 +79,14 @@ func main() {
 		log.Fatalf("Failed to initialize protocol router: %v", err)
 	}
 
+	// ✅ ADD: Initialize heartbeat service
+	if cfg.WireGuard.Enabled {
+		log.Println("Initializing heartbeat service...")
+		hb := heartbeat.NewService(cfg, protocolRouter.GetWireGuardHandler())
+		hb.Start()
+		defer hb.Stop()
+	}
+
 	// Create TLS configuration
 	tlsConfig, err := createTLSConfig(cfg.Server.CertFile, cfg.Server.KeyFile)
 	if err != nil {
@@ -105,9 +115,9 @@ func main() {
 
 	// WireGuard management endpoints
 	if cfg.WireGuard.Enabled {
-		mux.HandleFunc("/wireguard/connect", auth.MiddlewareFunc(jwtAuth, handleWireGuardConnect(protocolRouter)))
-		mux.HandleFunc("/wireguard/disconnect", auth.MiddlewareFunc(jwtAuth, handleWireGuardDisconnect(protocolRouter)))
-		mux.HandleFunc("/wireguard/status", auth.MiddlewareFunc(jwtAuth, handleWireGuardStatus(protocolRouter)))
+		mux.HandleFunc("/wireguard/add-peer", handleWireGuardAddPeer(protocolRouter))
+		mux.HandleFunc("/wireguard/remove-peer", handleWireGuardRemovePeer(protocolRouter))
+		mux.HandleFunc("/wireguard/status", handleWireGuardServerStatus(protocolRouter))
 	}
 
 	// Fallback handler (HTTPS)
@@ -226,19 +236,14 @@ func handleMetrics(tm *tunnel.Manager) http.HandlerFunc {
 	}
 }
 
-// WireGuard management handlers
-func handleWireGuardConnect(router *protocol.Router) http.HandlerFunc {
+// WireGuard management handlers (called by OrbNet backend via API key auth)
+func handleWireGuardAddPeer(router *protocol.Router) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Get user from context
-		user, err := auth.GetUserFromContext(r.Context())
-		if err != nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		// Parse request
+		// Parse request from OrbNet
 		var req struct {
-			PublicKey string `json:"publicKey"`
+			UserUUID   string `json:"userUuid"`
+			PublicKey  string `json:"publicKey"`
+			AllowedIPs string `json:"allowedIPs"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request", http.StatusBadRequest)
@@ -246,25 +251,75 @@ func handleWireGuardConnect(router *protocol.Router) http.HandlerFunc {
 		}
 
 		// Add peer to WireGuard
-		wgHandler := router.GetWireGuardHandler()
-		if wgHandler == nil {
+		wgMgr := router.GetWireGuardHandler()
+		if wgMgr == nil {
 			http.Error(w, "WireGuard not enabled", http.StatusServiceUnavailable)
 			return
 		}
 
-		ip, err := wgHandler.AddPeer(fmt.Sprintf("%d", user.UserID), req.PublicKey)
+		ip, err := wgMgr.AddPeer(req.UserUUID, req.PublicKey)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to add peer: %v", err), http.StatusInternalServerError)
 			return
 		}
 
-		// Return client configuration
+		// Return success
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"ip":      ip.String(),
-			"gateway": wgHandler.GetGateway().String(),
-			"dns":     wgHandler.GetDNS(),
-			"mtu":     wgHandler.GetMTU(),
+			"success":  true,
+			"message":  "Peer added successfully",
+			"userUuid": req.UserUUID,
+			"ip":       ip.String(),
+		})
+	}
+}
+
+func handleWireGuardRemovePeer(router *protocol.Router) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			UserUUID string `json:"userUuid"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+
+		wgMgr := router.GetWireGuardHandler()
+		if wgMgr == nil {
+			http.Error(w, "WireGuard not enabled", http.StatusServiceUnavailable)
+			return
+		}
+
+		if err := wgMgr.RemovePeer(req.UserUUID); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to remove peer: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":  true,
+			"message":  "Peer removed successfully",
+			"userUuid": req.UserUUID,
+		})
+	}
+}
+
+func handleWireGuardServerStatus(router *protocol.Router) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		wgMgr := router.GetWireGuardHandler()
+		if wgMgr == nil {
+			http.Error(w, "WireGuard not enabled", http.StatusServiceUnavailable)
+			return
+		}
+
+		// Update stats before returning
+		wgMgr.UpdatePeerStats()
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":   true,
+			"publicKey": wgMgr.GetPublicKey(),
+			"peerCount": wgMgr.GetPeerCount(),
 		})
 	}
 }

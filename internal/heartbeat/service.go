@@ -11,8 +11,8 @@ import (
 	"runtime"
 	"time"
 
-	"orbx-protocol/internal/config"
-	"orbx-protocol/internal/wireguard"
+	"github.com/orbvpn/orbx.protocol/internal/config"
+	"github.com/orbvpn/orbx.protocol/internal/wireguard"
 )
 
 type Service struct {
