@@ -1,180 +1,141 @@
 #!/bin/bash
 
+# Deploy OrbX servers to all 30 Azure regions with automatic OrbNet registration
+# Each server gets unique credentials from OrbNet API
+
 set -e
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
-BLUE='\033[0;34m'
 NC='\033[0m'
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/orbnet-api-client.sh"
-
-ACR_NAME="orbxregistry"
-IMAGE_NAME="orbx-protocol"
-VERSION="latest"
-KEYVAULT_NAME="orbx-vault"
-
-# DNS Configuration
-DNS_ZONE_NAME="orbvpn.com"  # YOUR DOMAIN
-DNS_RESOURCE_GROUP="dns-rg"  # Resource group containing DNS zone
-
-# 30 Azure regions
-declare -A REGIONS=(
-    ["eastus"]="East US|US" ["westus"]="West US|US" ["centralus"]="Central US|US"
-    ["canadacentral"]="Canada|CA" ["northeurope"]="North Europe|IE" ["westeurope"]="West Europe|NL"
-    ["uksouth"]="UK South|GB" ["francecentral"]="France|FR" ["germanywestcentral"]="Germany|DE"
-    ["swedencentral"]="Sweden|SE" ["switzerlandnorth"]="Switzerland|CH" ["italynorth"]="Italy|IT"
-    ["southeastasia"]="Singapore|SG" ["eastasia"]="Hong Kong|HK" ["japaneast"]="Japan|JP"
-    ["koreacentral"]="Korea|KR" ["australiaeast"]="Australia|AU" ["centralindia"]="India|IN"
-    ["uaenorth"]="UAE|AE" ["southafricanorth"]="South Africa|ZA" ["qatarcentral"]="Qatar|QA"
-    ["israelcentral"]="Israel|IL" ["brazilsouth"]="Brazil|BR" ["norwayeast"]="Norway|NO"
-    ["polandcentral"]="Poland|PL" ["spaincentral"]="Spain|ES" ["mexicocentral"]="Mexico|MX"
-    ["southindia"]="South India|IN" ["westus3"]="West US 3|US" ["australiasoutheast"]="Australia SE|AU"
+# All 30 Azure regions
+REGIONS=(
+  "eastus" "eastus2" "westus" "westus2" "westus3"
+  "centralus" "northcentralus" "southcentralus" "westcentralus"
+  "canadacentral" "canadaeast"
+  "brazilsouth"
+  "northeurope" "westeurope" "uksouth" "ukwest"
+  "francecentral" "germanywestcentral" "norwayeast" "switzerlandnorth"
+  "swedencentral"
+  "eastasia" "southeastasia"
+  "japaneast" "japanwest"
+  "australiaeast" "australiasoutheast"
+  "centralindia" "southindia"
+  "uaenorth"
 )
 
+echo -e "${GREEN}🌍 OrbX Multi-Region Deployment${NC}"
+echo -e "${GREEN}============================================${NC}"
+echo -e "${YELLOW}Deploying to ${#REGIONS[@]} regions${NC}"
+echo ""
+echo "Regions:"
+for region in "${REGIONS[@]}"; do
+  echo "  - $region"
+done
+echo ""
+read -p "Continue? (yes/no): " confirm
+
+if [ "$confirm" != "yes" ]; then
+  echo "Deployment cancelled"
+  exit 0
+fi
+
+# Clear previous deployment log
+> deployed-servers.txt
+> deployment-errors.txt
+
+echo -e "\n${GREEN}Starting deployments...${NC}"
+echo -e "${YELLOW}This will take approximately 15-20 minutes${NC}\n"
+
+# Deploy in batches of 5 for better progress tracking
+BATCH_SIZE=5
 TOTAL=${#REGIONS[@]}
-SUCCESS=0
+SUCCESSFUL=0
 FAILED=0
 
-echo -e "${GREEN}╔════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║  FULLY AUTOMATED - Deploy to $TOTAL Regions        ║${NC}"
-echo -e "${GREEN}╚════════════════════════════════════════════════╝${NC}"
-echo -e "${BLUE}Each region auto-registers & gets unique credentials!${NC}"
-echo -e "${BLUE}DNS: orbx-{region}.${DNS_ZONE_NAME}${NC}\n"
-
-read -p "Continue? (yes/no): " CONFIRM
-[ "$CONFIRM" != "yes" ] && exit 0
-
-# Get credentials
-echo -e "${YELLOW}🔑 Getting credentials...${NC}"
-ORBNET_ADMIN_EMAIL=$(az keyvault secret show --vault-name $KEYVAULT_NAME --name "ORBNET-ADMIN-EMAIL" --query value -o tsv)
-ORBNET_ADMIN_PASSWORD=$(az keyvault secret show --vault-name $KEYVAULT_NAME --name "ORBNET-ADMIN-PASSWORD" --query value -o tsv)
-ORBNET_ENDPOINT=$(az keyvault secret show --vault-name $KEYVAULT_NAME --name "ORBNET-ENDPOINT" --query value -o tsv)
-ACR_USERNAME=$(az keyvault secret show --vault-name $KEYVAULT_NAME --name "ACR-USERNAME" --query value -o tsv)
-ACR_PASSWORD=$(az keyvault secret show --vault-name $KEYVAULT_NAME --name "ACR-PASSWORD" --query value -o tsv)
-
-# Login once
-echo -e "${YELLOW}🔐 Logging into OrbNet...${NC}"
-ADMIN_TOKEN=$(orbnet_login "$ORBNET_ADMIN_EMAIL" "$ORBNET_ADMIN_PASSWORD")
-
-# Create DNS CNAME record
-create_dns_cname() {
-    local region=$1
-    local container_fqdn=$2
-    local subdomain="orbx-${region}"
+for ((i=0; i<$TOTAL; i+=$BATCH_SIZE)); do
+  BATCH_END=$((i + BATCH_SIZE))
+  if [ $BATCH_END -gt $TOTAL ]; then
+    BATCH_END=$TOTAL
+  fi
+  
+  BATCH_NUM=$((i / BATCH_SIZE + 1))
+  TOTAL_BATCHES=$(( (TOTAL + BATCH_SIZE - 1) / BATCH_SIZE ))
+  
+  echo -e "${YELLOW}📦 Batch ${BATCH_NUM}/${TOTAL_BATCHES}${NC}"
+  
+  # Deploy regions in this batch in parallel
+  for ((j=i; j<$BATCH_END; j++)); do
+    region="${REGIONS[$j]}"
+    echo -e "${YELLOW}  Deploying to ${region}...${NC}"
     
-    # Delete existing record if exists
-    az network dns record-set cname delete \
-        --resource-group $DNS_RESOURCE_GROUP \
-        --zone-name $DNS_ZONE_NAME \
-        --name $subdomain \
-        --yes --output none 2>/dev/null || true
-    
-    # Create CNAME record
-    az network dns record-set cname create \
-        --resource-group $DNS_RESOURCE_GROUP \
-        --zone-name $DNS_ZONE_NAME \
-        --name $subdomain \
-        --ttl 300 \
-        --output none 2>/dev/null
-    
-    az network dns record-set cname set-record \
-        --resource-group $DNS_RESOURCE_GROUP \
-        --zone-name $DNS_ZONE_NAME \
-        --record-set-name $subdomain \
-        --cname $container_fqdn \
-        --output none 2>/dev/null
-    
-    if [ $? -eq 0 ]; then
-        echo -e "   🌐 DNS: ${subdomain}.${DNS_ZONE_NAME} → ${container_fqdn}"
-        return 0
-    else
-        echo -e "   ${YELLOW}⚠️  DNS creation failed (will use container FQDN)${NC}"
-        return 1
-    fi
-}
-
-# Deploy function
-deploy_region() {
-    local region=$1
-    local info=$2
-    IFS='|' read -r location country <<< "$info"
-    
-    local rg="orbx-${region}-rg"
-    local container="orbx-${region}"
-    local dns_label="orbx-${region}"
-    local name="OrbX - $location"
-    local custom_hostname="orbx-${region}.${DNS_ZONE_NAME}"
-    
-    echo -e "${GREEN}🌍 $location ($country)${NC}"
-    
-    # Create RG
-    az group create --name $rg --location $region --tags Environment=Production --output none 2>/dev/null || return 1
-    
-    # Register or regenerate credentials
-    local sid=$(orbnet_check_server_exists "$ADMIN_TOKEN" "$name" 2>/dev/null || echo "")
-    local creds
-    
-    if [ -n "$sid" ]; then
-        creds=$(orbnet_regenerate_credentials "$ADMIN_TOKEN" "$sid" 2>/dev/null) || return 1
-    else
-        creds=$(orbnet_register_server "$ADMIN_TOKEN" "$name" "pending" 8443 "$location" "$country" "$region" 2>/dev/null) || return 1
-        sid=$(echo "$creds" | jq -r '.server_id')
-    fi
-    
-    local key=$(echo "$creds" | jq -r '.api_key')
-    local jwt=$(echo "$creds" | jq -r '.jwt_secret')
-    
-    # Deploy container
-    az container create \
-        --resource-group $rg --name $container --image $ACR_NAME.azurecr.io/$IMAGE_NAME:$VERSION \
-        --dns-name-label $dns_label --ports 8443 51820 --cpu 2 --memory 4 \
-        --registry-login-server $ACR_NAME.azurecr.io \
-        --registry-username $ACR_USERNAME --registry-password $ACR_PASSWORD \
-        --environment-variables ORBNET_ENDPOINT="$ORBNET_ENDPOINT" \
-        --secure-environment-variables JWT_SECRET="$jwt" ORBNET_API_KEY="$key" \
-        --restart-policy Always --output none 2>/dev/null || return 1
-    
-    # Get container FQDN and IP
-    local container_fqdn=$(az container show --resource-group $rg --name $container --query "ipAddress.fqdn" -o tsv 2>/dev/null)
-    local container_ip=$(az container show --resource-group $rg --name $container --query "ipAddress.ip" -o tsv 2>/dev/null)
-    
-    # Create DNS CNAME record
-    local dns_created=false
-    if create_dns_cname "$region" "$container_fqdn"; then
-        dns_created=true
-    fi
-    
-    # Determine final hostname
-    local final_hostname
-    if [ "$dns_created" = true ]; then
-        final_hostname="$custom_hostname"
-    else
-        final_hostname="$container_fqdn"
-    fi
-    
-    # Update OrbNet with hostname and IP
-    orbnet_update_server_full "$ADMIN_TOKEN" "$sid" "$final_hostname" "$container_ip" 2>/dev/null
-    
-    echo -e "   ✅ https://${final_hostname}:8443"
-    echo -e "   📍 IP: ${container_ip}"
-    return 0
-}
-
-# Deploy all
-START=$(date +%s)
-for region in "${!REGIONS[@]}"; do
-    deploy_region "$region" "${REGIONS[$region]}" && ((SUCCESS++)) || ((FAILED++))
-    sleep 2
+    # Run deployment in background
+    (
+      if ./deploy-single-region.sh "$region" "orbx-${region}-rg" > "deploy-${region}.log" 2>&1; then
+        echo "SUCCESS|${region}" >> deployment-status.tmp
+      else
+        echo "FAILED|${region}" >> deployment-status.tmp
+        cat "deploy-${region}.log" >> deployment-errors.txt
+      fi
+    ) &
+  done
+  
+  # Wait for this batch to complete
+  wait
+  
+  # Count successes and failures in this batch
+  if [ -f deployment-status.tmp ]; then
+    while IFS='|' read -r status region; do
+      if [ "$status" = "SUCCESS" ]; then
+        SUCCESSFUL=$((SUCCESSFUL + 1))
+        echo -e "${GREEN}  ✓ ${region} deployed${NC}"
+      else
+        FAILED=$((FAILED + 1))
+        echo -e "${RED}  ✗ ${region} failed${NC}"
+      fi
+    done < deployment-status.tmp
+    rm deployment-status.tmp
+  fi
+  
+  echo -e "${YELLOW}  Progress: ${SUCCESSFUL}/${TOTAL} successful, ${FAILED} failed${NC}\n"
+  
+  # Brief pause between batches
+  if [ $BATCH_END -lt $TOTAL ]; then
+    sleep 5
+  fi
 done
-END=$(date +%s)
 
-echo -e "\n${GREEN}╔════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║            DEPLOYMENT COMPLETE                  ║${NC}"
-echo -e "${GREEN}╚════════════════════════════════════════════════╝${NC}"
-echo -e "Success: ${GREEN}$SUCCESS${NC} | Failed: ${RED}$FAILED${NC} | Time: ${YELLOW}$(((END-START)/60))m${NC}"
-echo -e "\n${BLUE}🤖 $SUCCESS servers deployed with DNS hostnames!${NC}"
-echo -e "${BLUE}📡 Format: orbx-{region}.${DNS_ZONE_NAME}${NC}"
-echo -e "\n${YELLOW}Next: ./test-all-regions.sh${NC}"
+# ============================================
+# Summary
+# ============================================
+echo -e "\n${GREEN}============================================${NC}"
+echo -e "${GREEN}📊 Deployment Summary${NC}"
+echo -e "${GREEN}============================================${NC}"
+echo -e "Total Regions: ${YELLOW}${TOTAL}${NC}"
+echo -e "Successful: ${GREEN}${SUCCESSFUL}${NC}"
+echo -e "Failed: ${RED}${FAILED}${NC}"
+
+if [ $FAILED -gt 0 ]; then
+  echo -e "\n${RED}⚠️  Some deployments failed. Check deployment-errors.txt for details${NC}"
+fi
+
+# Display deployed servers
+if [ -f deployed-servers.txt ] && [ -s deployed-servers.txt ]; then
+  echo -e "\n${GREEN}Deployed Servers:${NC}"
+  echo -e "${YELLOW}FQDN | Server ID | Region | WireGuard Public Key${NC}"
+  cat deployed-servers.txt
+  
+  echo -e "\n${GREEN}Server list saved to: deployed-servers.txt${NC}"
+fi
+
+# Cleanup individual deployment logs
+echo -e "\n${YELLOW}Cleaning up...${NC}"
+rm -f deploy-*.log
+
+echo -e "\n${GREEN}✅ Multi-region deployment complete!${NC}"
+echo -e "\n${YELLOW}Next steps:${NC}"
+echo -e "1. Test all servers: ${YELLOW}./test-all-regions.sh${NC}"
+echo -e "2. View OrbNet dashboard to see all servers"
+echo -e "3. Check server status: ${YELLOW}./manage-all-regions.sh status${NC}"

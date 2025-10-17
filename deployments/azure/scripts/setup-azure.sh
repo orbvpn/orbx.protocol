@@ -53,44 +53,146 @@ ACR_LOGIN_SERVER="$ACR_NAME.azurecr.io"
 echo -e "${GREEN}Registry: $ACR_LOGIN_SERVER${NC}"
 
 # ============================================
-# Step 3: Create Key Vault
+# Step 3: Create Key Vault with proper permissions
 # ============================================
 echo -e "\n${YELLOW}🔐 Step 3: Creating Key Vault...${NC}"
+
+# Get current user's object ID
+USER_OBJECT_ID=$(az ad signed-in-user show --query id -o tsv)
+echo "Current user object ID: $USER_OBJECT_ID"
+
+# Create Key Vault
 az keyvault create \
   --name $KEYVAULT_NAME \
   --resource-group $RESOURCE_GROUP \
   --location $LOCATION \
+  --enable-rbac-authorization false \
   --enabled-for-deployment true \
   --enabled-for-template-deployment true
 
-echo -e "${GREEN}✅ Key Vault created${NC}"
+# Set access policy for current user
+echo -e "\n${YELLOW}Setting Key Vault access policy...${NC}"
+az keyvault set-policy \
+  --name $KEYVAULT_NAME \
+  --object-id $USER_OBJECT_ID \
+  --secret-permissions get list set delete \
+  --certificate-permissions get list create delete
+
+echo -e "${GREEN}✅ Key Vault created with proper permissions${NC}"
 
 # ============================================
-# Step 4: Store Secrets in Key Vault
+# Step 4: Get OrbNet credentials
 # ============================================
-echo -e "\n${YELLOW}🔑 Step 4: Storing secrets...${NC}"
+echo -e "\n${YELLOW}🔑 Step 4: OrbNet API Configuration...${NC}"
+echo -e "${YELLOW}We'll register this server with OrbNet API and get credentials automatically${NC}"
 
-# Prompt for secrets
-read -sp "Enter JWT_SECRET: " JWT_SECRET
-echo
-read -sp "Enter ORBNET_API_KEY: " ORBNET_API_KEY
-echo
-read -p "Enter ORBNET_ENDPOINT (default: https://orbnet.xyz/graphql): " ORBNET_ENDPOINT
-ORBNET_ENDPOINT=${ORBNET_ENDPOINT:-https://orbnet.xyz/graphql}
+# Prompt for OrbNet admin credentials (used once to register the server)
+read -p "Enter OrbNet admin email: " ORBNET_ADMIN_EMAIL
+read -sp "Enter OrbNet admin password: " ORBNET_ADMIN_PASSWORD
+echo ""
+read -p "Enter OrbNet API endpoint (default: https://api.orbvpn.com/graphql): " ORBNET_ENDPOINT
+ORBNET_ENDPOINT=${ORBNET_ENDPOINT:-https://api.orbvpn.com/graphql}
 
-# Store secrets
-az keyvault secret set --vault-name $KEYVAULT_NAME --name "JWT-SECRET" --value "$JWT_SECRET"
-az keyvault secret set --vault-name $KEYVAULT_NAME --name "ORBNET-API-KEY" --value "$ORBNET_API_KEY"
-az keyvault secret set --vault-name $KEYVAULT_NAME --name "ORBNET-ENDPOINT" --value "$ORBNET_ENDPOINT"
-az keyvault secret set --vault-name $KEYVAULT_NAME --name "ACR-USERNAME" --value "$ACR_USERNAME"
-az keyvault secret set --vault-name $KEYVAULT_NAME --name "ACR-PASSWORD" --value "$ACR_PASSWORD"
+# Login to OrbNet and get authentication token
+echo -e "\n${YELLOW}Authenticating with OrbNet API...${NC}"
+AUTH_RESPONSE=$(curl -s -X POST "$ORBNET_ENDPOINT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "mutation Login($email: String!, $password: String!) { login(email: $email, password: $password) { token user { id email role } } }",
+    "variables": {
+      "email": "'"$ORBNET_ADMIN_EMAIL"'",
+      "password": "'"$ORBNET_ADMIN_PASSWORD"'"
+    }
+  }')
+
+# Extract token
+AUTH_TOKEN=$(echo $AUTH_RESPONSE | jq -r '.data.login.token')
+
+if [ "$AUTH_TOKEN" = "null" ] || [ -z "$AUTH_TOKEN" ]; then
+  echo -e "${RED}❌ Failed to authenticate with OrbNet API${NC}"
+  echo "Response: $AUTH_RESPONSE"
+  exit 1
+fi
+
+echo -e "${GREEN}✅ Authenticated with OrbNet API${NC}"
+
+# Register the server and get credentials
+echo -e "\n${YELLOW}Registering OrbX server with OrbNet...${NC}"
+REGISTER_RESPONSE=$(curl -s -X POST "$ORBNET_ENDPOINT" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -d '{
+    "query": "mutation RegisterOrbxServer($input: OrbxServerInput!) { registerOrbxServer(input: $input) { id name region endpoint apiKey jwtSecret publicKey status } }",
+    "variables": {
+      "input": {
+        "name": "OrbX - East US",
+        "region": "eastus",
+        "endpoint": "https://orbx-eastus.azurecontainer.io:8443",
+        "status": "PROVISIONING"
+      }
+    }
+  }')
+
+# Extract credentials from response
+ORBNET_API_KEY=$(echo $REGISTER_RESPONSE | jq -r '.data.registerOrbxServer.apiKey')
+JWT_SECRET=$(echo $REGISTER_RESPONSE | jq -r '.data.registerOrbxServer.jwtSecret')
+ORBNET_SERVER_ID=$(echo $REGISTER_RESPONSE | jq -r '.data.registerOrbxServer.id')
+
+if [ "$ORBNET_API_KEY" = "null" ] || [ -z "$ORBNET_API_KEY" ]; then
+  echo -e "${RED}❌ Failed to register server with OrbNet API${NC}"
+  echo "Response: $REGISTER_RESPONSE"
+  exit 1
+fi
+
+echo -e "${GREEN}✅ Server registered with OrbNet API${NC}"
+echo -e "${GREEN}Server ID: $ORBNET_SERVER_ID${NC}"
+
+# ============================================
+# Step 5: Store secrets in Key Vault
+# ============================================
+echo -e "\n${YELLOW}🔐 Step 5: Storing secrets in Key Vault...${NC}"
+
+# Store JWT Secret
+az keyvault secret set \
+  --vault-name $KEYVAULT_NAME \
+  --name "JWT-SECRET" \
+  --value "$JWT_SECRET"
+
+# Store OrbNet API Key
+az keyvault secret set \
+  --vault-name $KEYVAULT_NAME \
+  --name "ORBNET-API-KEY" \
+  --value "$ORBNET_API_KEY"
+
+# Store OrbNet Endpoint
+az keyvault secret set \
+  --vault-name $KEYVAULT_NAME \
+  --name "ORBNET-ENDPOINT" \
+  --value "$ORBNET_ENDPOINT"
+
+# Store OrbNet Server ID
+az keyvault secret set \
+  --vault-name $KEYVAULT_NAME \
+  --name "ORBNET-SERVER-ID" \
+  --value "$ORBNET_SERVER_ID"
+
+# Store ACR credentials
+az keyvault secret set \
+  --vault-name $KEYVAULT_NAME \
+  --name "ACR-USERNAME" \
+  --value "$ACR_USERNAME"
+
+az keyvault secret set \
+  --vault-name $KEYVAULT_NAME \
+  --name "ACR-PASSWORD" \
+  --value "$ACR_PASSWORD"
 
 echo -e "${GREEN}✅ Secrets stored in Key Vault${NC}"
 
 # ============================================
-# Step 5: Create Virtual Network
+# Step 6: Create Virtual Network
 # ============================================
-echo -e "\n${YELLOW}🌐 Step 5: Creating Virtual Network...${NC}"
+echo -e "\n${YELLOW}🌐 Step 6: Creating Virtual Network...${NC}"
 az network vnet create \
   --resource-group $RESOURCE_GROUP \
   --name $VNET_NAME \
@@ -101,40 +203,17 @@ az network vnet create \
 echo -e "${GREEN}✅ Virtual Network created${NC}"
 
 # ============================================
-# Step 6: Generate TLS Certificate
-# ============================================
-echo -e "\n${YELLOW}🔒 Step 6: Generating TLS certificates...${NC}"
-
-# Create local certs directory
-mkdir -p certs
-
-# Generate self-signed certificate (for testing)
-# In production, use Azure App Service Certificate or Let's Encrypt
-openssl req -x509 -newkey rsa:4096 -nodes \
-  -keyout certs/key.pem \
-  -out certs/cert.pem \
-  -days 365 \
-  -subj "/C=US/ST=State/L=City/O=OrbVPN/CN=orbx-protocol.eastus.azurecontainer.io"
-
-# Upload certificates to Key Vault
-CERT_BASE64=$(cat certs/cert.pem | base64)
-KEY_BASE64=$(cat certs/key.pem | base64)
-
-az keyvault secret set --vault-name $KEYVAULT_NAME --name "TLS-CERT" --value "$CERT_BASE64"
-az keyvault secret set --vault-name $KEYVAULT_NAME --name "TLS-KEY" --value "$KEY_BASE64"
-
-echo -e "${GREEN}✅ TLS certificates generated and stored${NC}"
-
-# ============================================
-# Output Summary
+# Summary
 # ============================================
 echo -e "\n${GREEN}============================================${NC}"
-echo -e "${GREEN}🎉 Azure Setup Complete!${NC}"
+echo -e "${GREEN}✅ Azure Setup Complete!${NC}"
 echo -e "${GREEN}============================================${NC}"
 echo -e "Resource Group: ${YELLOW}$RESOURCE_GROUP${NC}"
-echo -e "Location: ${YELLOW}$LOCATION${NC}"
 echo -e "Container Registry: ${YELLOW}$ACR_LOGIN_SERVER${NC}"
 echo -e "Key Vault: ${YELLOW}$KEYVAULT_NAME${NC}"
+echo -e "OrbNet Server ID: ${YELLOW}$ORBNET_SERVER_ID${NC}"
 echo -e "\n${YELLOW}Next steps:${NC}"
-echo -e "1. Run: ${GREEN}./deployments/azure/scripts/build-and-push.sh${NC}"
-echo -e "2. Run: ${GREEN}./deployments/azure/scripts/deploy-container.sh${NC}"
+echo -e "1. Generate TLS certificates: ${YELLOW}./generate-tls-certs.sh${NC}"
+echo -e "2. Generate WireGuard keys: ${YELLOW}./generate-wireguard-keys.sh${NC}"
+echo -e "3. Build Docker image: ${YELLOW}./build-and-push.sh${NC}"
+echo -e "4. Deploy container: ${YELLOW}./deploy-container.sh${NC}"

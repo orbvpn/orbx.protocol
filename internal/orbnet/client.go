@@ -59,14 +59,14 @@ func (c *Client) RecordUsage(ctx context.Context, metrics *models.UsageMetrics) 
 
 	variables := map[string]interface{}{
 		"input": map[string]interface{}{
-			"userId":         metrics.UserID,
-			"serverId":       metrics.ServerID,
-			"sessionId":      metrics.SessionID,
-			"bytesSent":      metrics.BytesSent,
-			"bytesReceived":  metrics.BytesRecv,
-			"duration":       int(metrics.Duration.Seconds()),
-			"protocol":       metrics.Protocol,
-			"disconnectedAt": metrics.DisconnectAt.Format(time.RFC3339),
+			"userId":          metrics.UserID,
+			"serverId":        metrics.ServerID,
+			"sessionId":       metrics.SessionID,
+			"bytesSent":       metrics.BytesSent,
+			"bytesReceived":   metrics.BytesRecv,
+			"durationSeconds": int(metrics.Duration.Seconds()),
+			"protocol":        metrics.Protocol,
+			"disconnectedAt":  metrics.DisconnectAt.Format(time.RFC3339),
 		},
 	}
 
