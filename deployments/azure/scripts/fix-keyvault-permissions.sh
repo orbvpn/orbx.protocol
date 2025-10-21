@@ -24,16 +24,16 @@ sleep 5
 # Update Key Vault to disable RBAC and use access policies
 echo -e "\n${YELLOW}Updating Key Vault to use access policies...${NC}"
 az keyvault update \
-  --name $KEYVAULT_NAME \
-  --enable-rbac-authorization false
+	--name $KEYVAULT_NAME \
+	--enable-rbac-authorization false
 
 # Set access policy for current user
 echo -e "\n${YELLOW}Setting access policy...${NC}"
 az keyvault set-policy \
-  --name $KEYVAULT_NAME \
-  --object-id $USER_OBJECT_ID \
-  --secret-permissions get list set delete purge recover backup restore \
-  --certificate-permissions get list create delete purge recover backup restore
+	--name $KEYVAULT_NAME \
+	--object-id $USER_OBJECT_ID \
+	--secret-permissions get list set delete purge recover backup restore \
+	--certificate-permissions get list create delete purge recover backup restore
 
 echo -e "\n${GREEN}✅ Key Vault permissions fixed!${NC}"
 echo -e "${GREEN}You can now store secrets in the Key Vault${NC}"

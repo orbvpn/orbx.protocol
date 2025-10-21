@@ -17,22 +17,22 @@ SCRIPT_DIR="deployments/azure/scripts"
 
 # List of all scripts
 SCRIPTS=(
-    "setup-azure.sh"
-    "build-and-push.sh"
-    "deploy-container.sh"
-    "deploy-all-regions.sh"
-    "test-all-regions.sh"
-    "manage-all-regions.sh"
+	"setup-azure.sh"
+	"build-and-push.sh"
+	"deploy-container.sh"
+	"deploy-all-regions.sh"
+	"test-all-regions.sh"
+	"manage-all-regions.sh"
 )
 
 # Make each script executable
 for script in "${SCRIPTS[@]}"; do
-    if [ -f "$SCRIPT_DIR/$script" ]; then
-        chmod +x "$SCRIPT_DIR/$script"
-        echo -e "${GREEN}✅ Made executable: $script${NC}"
-    else
-        echo -e "${YELLOW}⚠️  Not found: $script${NC}"
-    fi
+	if [ -f "$SCRIPT_DIR/$script" ]; then
+		chmod +x "$SCRIPT_DIR/$script"
+		echo -e "${GREEN}✅ Made executable: $script${NC}"
+	else
+		echo -e "${YELLOW}⚠️  Not found: $script${NC}"
+	fi
 done
 
 echo -e "\n${GREEN}🎉 All scripts are now executable!${NC}"

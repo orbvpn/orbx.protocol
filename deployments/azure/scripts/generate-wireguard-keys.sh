@@ -15,16 +15,16 @@ echo -e "${GREEN}🔑 Generating WireGuard Keys${NC}"
 echo "=============================================="
 
 # Check if wg command exists
-if ! command -v wg &> /dev/null; then
-    echo -e "${YELLOW}WireGuard tools not found. Installing...${NC}"
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        brew install wireguard-tools
-    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        sudo apt-get update && sudo apt-get install -y wireguard-tools
-    else
-        echo "Please install wireguard-tools manually"
-        exit 1
-    fi
+if ! command -v wg &>/dev/null; then
+	echo -e "${YELLOW}WireGuard tools not found. Installing...${NC}"
+	if [[ "$OSTYPE" == "darwin"* ]]; then
+		brew install wireguard-tools
+	elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+		sudo apt-get update && sudo apt-get install -y wireguard-tools
+	else
+		echo "Please install wireguard-tools manually"
+		exit 1
+	fi
 fi
 
 # Generate private key
@@ -39,14 +39,14 @@ WG_PUBLIC_KEY=$(echo "$WG_PRIVATE_KEY" | wg pubkey)
 echo -e "\n${YELLOW}Storing keys in Azure Key Vault...${NC}"
 
 az keyvault secret set \
-  --vault-name $KEYVAULT_NAME \
-  --name "WG-PRIVATE-KEY" \
-  --value "$WG_PRIVATE_KEY"
+	--vault-name $KEYVAULT_NAME \
+	--name "WG-PRIVATE-KEY" \
+	--value "$WG_PRIVATE_KEY"
 
 az keyvault secret set \
-  --vault-name $KEYVAULT_NAME \
-  --name "WG-PUBLIC-KEY" \
-  --value "$WG_PUBLIC_KEY"
+	--vault-name $KEYVAULT_NAME \
+	--name "WG-PUBLIC-KEY" \
+	--value "$WG_PUBLIC_KEY"
 
 echo -e "\n${GREEN}✅ WireGuard Keys Generated!${NC}"
 echo -e "${GREEN}============================================${NC}"

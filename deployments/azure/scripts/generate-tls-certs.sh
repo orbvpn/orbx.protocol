@@ -25,20 +25,20 @@ openssl genrsa -out $CERT_DIR/server.key 2048
 # Generate certificate signing request
 echo -e "\n${YELLOW}Generating CSR...${NC}"
 openssl req -new -key $CERT_DIR/server.key \
-  -out $CERT_DIR/server.csr \
-  -subj "/C=US/ST=State/L=City/O=OrbVPN/CN=*.azurecontainer.io"
+	-out $CERT_DIR/server.csr \
+	-subj "/C=US/ST=State/L=City/O=OrbVPN/CN=*.azurecontainer.io"
 
 # Generate self-signed certificate (valid for 1 year)
 echo -e "\n${YELLOW}Generating self-signed certificate...${NC}"
 openssl x509 -req -days 365 \
-  -in $CERT_DIR/server.csr \
-  -signkey $CERT_DIR/server.key \
-  -out $CERT_DIR/server.crt
+	-in $CERT_DIR/server.csr \
+	-signkey $CERT_DIR/server.key \
+	-out $CERT_DIR/server.crt
 
 # Convert to PEM format (Azure format)
 echo -e "\n${YELLOW}Converting to PEM format...${NC}"
-cat $CERT_DIR/server.crt > $CERT_DIR/cert.pem
-cat $CERT_DIR/server.key > $CERT_DIR/key.pem
+cat $CERT_DIR/server.crt >$CERT_DIR/cert.pem
+cat $CERT_DIR/server.key >$CERT_DIR/key.pem
 
 # Upload to Azure Key Vault
 echo -e "\n${YELLOW}Uploading to Azure Key Vault...${NC}"
@@ -48,14 +48,14 @@ TLS_CERT=$(base64 -i $CERT_DIR/cert.pem | tr -d '\n')
 TLS_KEY=$(base64 -i $CERT_DIR/key.pem | tr -d '\n')
 
 az keyvault secret set \
-  --vault-name $KEYVAULT_NAME \
-  --name "TLS-CERT" \
-  --value "$TLS_CERT"
+	--vault-name $KEYVAULT_NAME \
+	--name "TLS-CERT" \
+	--value "$TLS_CERT"
 
 az keyvault secret set \
-  --vault-name $KEYVAULT_NAME \
-  --name "TLS-KEY" \
-  --value "$TLS_KEY"
+	--vault-name $KEYVAULT_NAME \
+	--name "TLS-KEY" \
+	--value "$TLS_KEY"
 
 echo -e "\n${GREEN}✅ TLS Certificates generated and stored in Key Vault${NC}"
 echo -e "${GREEN}Cert location: $CERT_DIR/cert.pem${NC}"

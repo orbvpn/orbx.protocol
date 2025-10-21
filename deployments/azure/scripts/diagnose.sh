@@ -22,9 +22,9 @@ ORBNET_ENDPOINT=$(az keyvault secret show --vault-name orbx-vault --name "ORBNET
 ORBNET_AUTH_TOKEN=$(az keyvault secret show --vault-name orbx-vault --name "ORBNET-AUTH-TOKEN" --query value -o tsv)
 
 TEST_RESPONSE=$(curl -s -X POST "$ORBNET_ENDPOINT" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $ORBNET_AUTH_TOKEN" \
-  -d '{
+	-H "Content-Type: application/json" \
+	-H "Authorization: Bearer $ORBNET_AUTH_TOKEN" \
+	-d '{
     "query": "mutation RegisterOrbXServer($input: OrbXServerInput!) { registerOrbXServer(input: $input) { server { id name } apiKey jwtSecret } }",
     "variables": {
       "input": {

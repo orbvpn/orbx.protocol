@@ -21,16 +21,16 @@ echo "=============================================="
 # Create test resource group
 echo -e "\n${YELLOW}Creating test resource group...${NC}"
 az group create \
-  --name $RESOURCE_GROUP \
-  --location $REGION \
-  --output none
+	--name $RESOURCE_GROUP \
+	--location $REGION \
+	--output none
 
 # Get ACR credentials
 ACR_USERNAME=$(az acr credential show --name $ACR_NAME --query username -o tsv)
 ACR_PASSWORD=$(az acr credential show --name $ACR_NAME --query passwords[0].value -o tsv)
 
 # Create minimal YAML - just test if the binary runs
-cat > /tmp/orbx-test.yaml <<EOF
+cat >/tmp/orbx-test.yaml <<EOF
 apiVersion: '2021-09-01'
 location: ${REGION}
 name: ${CONTAINER_NAME}
@@ -81,8 +81,8 @@ EOF
 
 echo -e "\n${YELLOW}Deploying test container...${NC}"
 az container create \
-  --resource-group $RESOURCE_GROUP \
-  --file /tmp/orbx-test.yaml
+	--resource-group $RESOURCE_GROUP \
+	--file /tmp/orbx-test.yaml
 
 echo -e "\n${YELLOW}Waiting 30 seconds for container to run...${NC}"
 sleep 30

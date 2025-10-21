@@ -25,10 +25,10 @@ echo -e "\n${YELLOW}🧹 Checking for existing Key Vault...${NC}"
 VAULT_STATUS=$(az keyvault list-deleted --query "[?name=='$KEYVAULT_NAME'].name" -o tsv 2>/dev/null || echo "")
 
 if [ ! -z "$VAULT_STATUS" ]; then
-  echo -e "${YELLOW}Found soft-deleted Key Vault. Purging...${NC}"
-  az keyvault purge --name $KEYVAULT_NAME || true
-  sleep 10
-  echo -e "${GREEN}✅ Old Key Vault purged${NC}"
+	echo -e "${YELLOW}Found soft-deleted Key Vault. Purging...${NC}"
+	az keyvault purge --name $KEYVAULT_NAME || true
+	sleep 10
+	echo -e "${GREEN}✅ Old Key Vault purged${NC}"
 fi
 
 # ============================================
@@ -36,10 +36,10 @@ fi
 # ============================================
 echo -e "\n${YELLOW}📦 Step 1: Creating Resource Group...${NC}"
 az group create \
-  --name $RESOURCE_GROUP \
-  --location $LOCATION \
-  --tags Environment=Production Application=OrbX \
-  --output none
+	--name $RESOURCE_GROUP \
+	--location $LOCATION \
+	--tags Environment=Production Application=OrbX \
+	--output none
 
 echo -e "${GREEN}✅ Resource Group created${NC}"
 
@@ -52,17 +52,17 @@ echo -e "\n${YELLOW}🐳 Step 2: Setting up Container Registry...${NC}"
 ACR_EXISTS=$(az acr list --query "[?name=='$ACR_NAME'].name" -o tsv)
 
 if [ -z "$ACR_EXISTS" ]; then
-  echo "Creating new Container Registry..."
-  az acr create \
-    --resource-group $RESOURCE_GROUP \
-    --name $ACR_NAME \
-    --sku Standard \
-    --admin-enabled true \
-    --output none
-  echo -e "${GREEN}✅ Container Registry created${NC}"
+	echo "Creating new Container Registry..."
+	az acr create \
+		--resource-group $RESOURCE_GROUP \
+		--name $ACR_NAME \
+		--sku Standard \
+		--admin-enabled true \
+		--output none
+	echo -e "${GREEN}✅ Container Registry created${NC}"
 else
-  echo "Container Registry already exists, using existing..."
-  echo -e "${GREEN}✅ Using existing Container Registry${NC}"
+	echo "Container Registry already exists, using existing..."
+	echo -e "${GREEN}✅ Using existing Container Registry${NC}"
 fi
 
 ACR_USERNAME=$(az acr credential show --name $ACR_NAME --query username -o tsv)
@@ -81,33 +81,33 @@ USER_OBJECT_ID=$(az ad signed-in-user show --query id -o tsv)
 VAULT_EXISTS=$(az keyvault list --query "[?name=='$KEYVAULT_NAME'].name" -o tsv)
 
 if [ -z "$VAULT_EXISTS" ]; then
-  echo "Creating new Key Vault..."
-  az keyvault create \
-    --name $KEYVAULT_NAME \
-    --resource-group $RESOURCE_GROUP \
-    --location $LOCATION \
-    --enable-rbac-authorization false \
-    --enabled-for-deployment true \
-    --enabled-for-template-deployment true \
-    --output none
-  echo -e "${GREEN}✅ Key Vault created${NC}"
+	echo "Creating new Key Vault..."
+	az keyvault create \
+		--name $KEYVAULT_NAME \
+		--resource-group $RESOURCE_GROUP \
+		--location $LOCATION \
+		--enable-rbac-authorization false \
+		--enabled-for-deployment true \
+		--enabled-for-template-deployment true \
+		--output none
+	echo -e "${GREEN}✅ Key Vault created${NC}"
 else
-  echo "Key Vault already exists, updating settings..."
-  az keyvault update \
-    --name $KEYVAULT_NAME \
-    --enable-rbac-authorization false \
-    --output none
-  echo -e "${GREEN}✅ Key Vault updated${NC}"
+	echo "Key Vault already exists, updating settings..."
+	az keyvault update \
+		--name $KEYVAULT_NAME \
+		--enable-rbac-authorization false \
+		--output none
+	echo -e "${GREEN}✅ Key Vault updated${NC}"
 fi
 
 # Set access policy
 echo "Setting access policy..."
 az keyvault set-policy \
-  --name $KEYVAULT_NAME \
-  --object-id $USER_OBJECT_ID \
-  --secret-permissions get list set delete purge recover \
-  --certificate-permissions get list create delete \
-  --output none
+	--name $KEYVAULT_NAME \
+	--object-id $USER_OBJECT_ID \
+	--secret-permissions get list set delete purge recover \
+	--certificate-permissions get list create delete \
+	--output none
 
 echo -e "${GREEN}✅ Key Vault permissions configured${NC}"
 
@@ -134,8 +134,8 @@ ORBNET_ENDPOINT=${ORBNET_ENDPOINT:-https://orbnet.xyz/graphql}
 # Login to OrbNet API
 echo -e "\n${YELLOW}Authenticating with OrbNet API...${NC}"
 AUTH_RESPONSE=$(curl -s -X POST "$ORBNET_ENDPOINT" \
-  -H "Content-Type: application/json" \
-  -d '{
+	-H "Content-Type: application/json" \
+	-d '{
     "query": "mutation Login($email: String!, $password: String!) { login(email: $email, password: $password) { accessToken } }",
     "variables": {
       "email": "'"$ORBNET_ADMIN_EMAIL"'",
@@ -146,14 +146,14 @@ AUTH_RESPONSE=$(curl -s -X POST "$ORBNET_ENDPOINT" \
 AUTH_TOKEN=$(echo $AUTH_RESPONSE | jq -r '.data.login.accessToken' 2>/dev/null || echo "null")
 
 if [ "$AUTH_TOKEN" = "null" ] || [ -z "$AUTH_TOKEN" ]; then
-  echo -e "${RED}❌ Authentication failed${NC}"
-  echo "Response: $AUTH_RESPONSE"
-  echo ""
-  echo "Please check:"
-  echo "1. Email and password are correct"
-  echo "2. OrbNet API endpoint is accessible"
-  echo "3. You have admin access in OrbNet"
-  exit 1
+	echo -e "${RED}❌ Authentication failed${NC}"
+	echo "Response: $AUTH_RESPONSE"
+	echo ""
+	echo "Please check:"
+	echo "1. Email and password are correct"
+	echo "2. OrbNet API endpoint is accessible"
+	echo "3. You have admin access in OrbNet"
+	exit 1
 fi
 
 echo -e "${GREEN}✅ Authenticated with OrbNet API${NC}"
@@ -169,12 +169,12 @@ echo -e "${GREEN}✅ OrbNet credentials stored${NC}"
 # ============================================
 echo -e "\n${YELLOW}🌐 Step 6: Creating Virtual Network...${NC}"
 az network vnet create \
-  --resource-group $RESOURCE_GROUP \
-  --name orbx-vnet \
-  --address-prefix 10.0.0.0/16 \
-  --subnet-name orbx-subnet \
-  --subnet-prefix 10.0.1.0/24 \
-  --output none
+	--resource-group $RESOURCE_GROUP \
+	--name orbx-vnet \
+	--address-prefix 10.0.0.0/16 \
+	--subnet-name orbx-subnet \
+	--subnet-prefix 10.0.1.0/24 \
+	--output none
 
 echo -e "${GREEN}✅ Virtual Network created${NC}"
 

@@ -51,78 +51,78 @@ HOSTNAME="${DNS_NAME}.${REGION}.azurecontainer.io"
 
 # Map Azure region to country code
 case $REGION in
-  eastus|eastus2|westus|westus2|westus3|centralus|northcentralus|southcentralus|westcentralus)
-    COUNTRY_CODE="US"
-    LOCATION_NAME="United States"
-    ;;
-  canadacentral|canadaeast)
-    COUNTRY_CODE="CA"
-    LOCATION_NAME="Canada"
-    ;;
-  brazilsouth)
-    COUNTRY_CODE="BR"
-    LOCATION_NAME="Brazil"
-    ;;
-  northeurope)
-    COUNTRY_CODE="IE"
-    LOCATION_NAME="Ireland"
-    ;;
-  westeurope)
-    COUNTRY_CODE="NL"
-    LOCATION_NAME="Netherlands"
-    ;;
-  uksouth|ukwest)
-    COUNTRY_CODE="GB"
-    LOCATION_NAME="United Kingdom"
-    ;;
-  francecentral)
-    COUNTRY_CODE="FR"
-    LOCATION_NAME="France"
-    ;;
-  germanywestcentral)
-    COUNTRY_CODE="DE"
-    LOCATION_NAME="Germany"
-    ;;
-  norwayeast)
-    COUNTRY_CODE="NO"
-    LOCATION_NAME="Norway"
-    ;;
-  switzerlandnorth)
-    COUNTRY_CODE="CH"
-    LOCATION_NAME="Switzerland"
-    ;;
-  swedencentral)
-    COUNTRY_CODE="SE"
-    LOCATION_NAME="Sweden"
-    ;;
-  eastasia)
-    COUNTRY_CODE="HK"
-    LOCATION_NAME="Hong Kong"
-    ;;
-  southeastasia)
-    COUNTRY_CODE="SG"
-    LOCATION_NAME="Singapore"
-    ;;
-  japaneast|japanwest)
-    COUNTRY_CODE="JP"
-    LOCATION_NAME="Japan"
-    ;;
-  australiaeast|australiasoutheast)
-    COUNTRY_CODE="AU"
-    LOCATION_NAME="Australia"
-    ;;
-  centralindia|southindia)
-    COUNTRY_CODE="IN"
-    LOCATION_NAME="India"
-    ;;
-  uaenorth)
-    COUNTRY_CODE="AE"
-    LOCATION_NAME="UAE"
-    ;;
-  *)
-    COUNTRY_CODE="US"
-    LOCATION_NAME="Unknown"
-    ;;
+eastus | eastus2 | westus | westus2 | westus3 | centralus | northcentralus | southcentralus | westcentralus)
+	COUNTRY_CODE="US"
+	LOCATION_NAME="United States"
+	;;
+canadacentral | canadaeast)
+	COUNTRY_CODE="CA"
+	LOCATION_NAME="Canada"
+	;;
+brazilsouth)
+	COUNTRY_CODE="BR"
+	LOCATION_NAME="Brazil"
+	;;
+northeurope)
+	COUNTRY_CODE="IE"
+	LOCATION_NAME="Ireland"
+	;;
+westeurope)
+	COUNTRY_CODE="NL"
+	LOCATION_NAME="Netherlands"
+	;;
+uksouth | ukwest)
+	COUNTRY_CODE="GB"
+	LOCATION_NAME="United Kingdom"
+	;;
+francecentral)
+	COUNTRY_CODE="FR"
+	LOCATION_NAME="France"
+	;;
+germanywestcentral)
+	COUNTRY_CODE="DE"
+	LOCATION_NAME="Germany"
+	;;
+norwayeast)
+	COUNTRY_CODE="NO"
+	LOCATION_NAME="Norway"
+	;;
+switzerlandnorth)
+	COUNTRY_CODE="CH"
+	LOCATION_NAME="Switzerland"
+	;;
+swedencentral)
+	COUNTRY_CODE="SE"
+	LOCATION_NAME="Sweden"
+	;;
+eastasia)
+	COUNTRY_CODE="HK"
+	LOCATION_NAME="Hong Kong"
+	;;
+southeastasia)
+	COUNTRY_CODE="SG"
+	LOCATION_NAME="Singapore"
+	;;
+japaneast | japanwest)
+	COUNTRY_CODE="JP"
+	LOCATION_NAME="Japan"
+	;;
+australiaeast | australiasoutheast)
+	COUNTRY_CODE="AU"
+	LOCATION_NAME="Australia"
+	;;
+centralindia | southindia)
+	COUNTRY_CODE="IN"
+	LOCATION_NAME="India"
+	;;
+uaenorth)
+	COUNTRY_CODE="AE"
+	LOCATION_NAME="UAE"
+	;;
+*)
+	COUNTRY_CODE="US"
+	LOCATION_NAME="Unknown"
+	;;
 esac
 
 # Register server via GraphQL (using correct schema)
@@ -131,9 +131,9 @@ TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 SERVER_NAME="OrbX-${COUNTRY_CODE}-${REGION}-${TIMESTAMP}"
 
 REGISTER_RESPONSE=$(curl -s -X POST "$ORBNET_ENDPOINT" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $ORBNET_AUTH_TOKEN" \
-  -d '{
+	-H "Content-Type: application/json" \
+	-H "Authorization: Bearer $ORBNET_AUTH_TOKEN" \
+	-d '{
     "query": "mutation RegisterOrbXServer($input: OrbXServerInput!) { registerOrbXServer(input: $input) { server { id name region hostname } apiKey jwtSecret } }",
     "variables": {
       "input": {
@@ -157,20 +157,20 @@ JWT_SECRET=$(echo $REGISTER_RESPONSE | jq -r '.data.registerOrbXServer.jwtSecret
 ORBNET_SERVER_ID=$(echo $REGISTER_RESPONSE | jq -r '.data.registerOrbXServer.server.id')
 
 if [ "$ORBNET_API_KEY" = "null" ] || [ -z "$ORBNET_API_KEY" ]; then
-  # Check if error is because server already exists
-  if echo "$REGISTER_RESPONSE" | grep -q "already exists"; then
-    echo -e "${YELLOW}⚠️  Server name conflict detected${NC}"
-    echo -e "${YELLOW}Creating server with unique timestamp...${NC}"
-    
-# Add more unique timestamp with process ID
-    TIMESTAMP=$(date +%Y%m%d-%H%M%S)-$$
-    SERVER_NAME="OrbX-${COUNTRY_CODE}-${REGION}-${TIMESTAMP}"
-    
-    # Try registering again with more unique name
-    REGISTER_RESPONSE=$(curl -s -X POST "$ORBNET_ENDPOINT" \
-      -H "Content-Type: application/json" \
-      -H "Authorization: Bearer $ORBNET_AUTH_TOKEN" \
-      -d '{
+	# Check if error is because server already exists
+	if echo "$REGISTER_RESPONSE" | grep -q "already exists"; then
+		echo -e "${YELLOW}⚠️  Server name conflict detected${NC}"
+		echo -e "${YELLOW}Creating server with unique timestamp...${NC}"
+
+		# Add more unique timestamp with process ID
+		TIMESTAMP=$(date +%Y%m%d-%H%M%S)-$$
+		SERVER_NAME="OrbX-${COUNTRY_CODE}-${REGION}-${TIMESTAMP}"
+
+		# Try registering again with more unique name
+		REGISTER_RESPONSE=$(curl -s -X POST "$ORBNET_ENDPOINT" \
+			-H "Content-Type: application/json" \
+			-H "Authorization: Bearer $ORBNET_AUTH_TOKEN" \
+			-d '{
         "query": "mutation RegisterOrbXServer($input: OrbXServerInput!) { registerOrbXServer(input: $input) { server { id name region hostname } apiKey jwtSecret } }",
         "variables": {
           "input": {
@@ -187,40 +187,40 @@ if [ "$ORBNET_API_KEY" = "null" ] || [ -z "$ORBNET_API_KEY" ]; then
           }
         }
       }')
-    
-    ORBNET_API_KEY=$(echo $REGISTER_RESPONSE | jq -r '.data.registerOrbXServer.apiKey')
-    JWT_SECRET=$(echo $REGISTER_RESPONSE | jq -r '.data.registerOrbXServer.jwtSecret')
-    ORBNET_SERVER_ID=$(echo $REGISTER_RESPONSE | jq -r '.data.registerOrbXServer.server.id')
-    
-# DEBUG: Print what we got
-echo -e "\n${YELLOW}=== DEBUG: API Response ===${NC}"
-echo "Full response:"
-echo $REGISTER_RESPONSE | jq '.'
-echo ""
-echo "Extracted values:"
-echo "  ORBNET_API_KEY: ${ORBNET_API_KEY:0:20}... (length: ${#ORBNET_API_KEY})"
-echo "  JWT_SECRET: ${JWT_SECRET:0:20}... (length: ${#JWT_SECRET})"
-echo "  ORBNET_SERVER_ID: $ORBNET_SERVER_ID"
-echo -e "${YELLOW}=========================${NC}\n"
 
-    if [ "$ORBNET_API_KEY" = "null" ] || [ -z "$ORBNET_API_KEY" ]; then
-      echo -e "${RED}❌ Still failed to register server${NC}"
-      echo "Response: $REGISTER_RESPONSE"
-      exit 1
-    fi
+		ORBNET_API_KEY=$(echo $REGISTER_RESPONSE | jq -r '.data.registerOrbXServer.apiKey')
+		JWT_SECRET=$(echo $REGISTER_RESPONSE | jq -r '.data.registerOrbXServer.jwtSecret')
+		ORBNET_SERVER_ID=$(echo $REGISTER_RESPONSE | jq -r '.data.registerOrbXServer.server.id')
 
-    if [ -z "$JWT_SECRET" ] || [ "$JWT_SECRET" = "null" ]; then
-      echo -e "${RED}❌ JWT Secret is empty or null!${NC}"
-      echo "Full response: $REGISTER_RESPONSE"
-      exit 1
-    fi
-    
-    echo -e "${GREEN}✅ Server registered with unique name${NC}"
-  else
-    echo -e "${RED}❌ Failed to register server with OrbNet API${NC}"
-    echo "Response: $REGISTER_RESPONSE"
-    exit 1
-  fi
+		# DEBUG: Print what we got
+		echo -e "\n${YELLOW}=== DEBUG: API Response ===${NC}"
+		echo "Full response:"
+		echo $REGISTER_RESPONSE | jq '.'
+		echo ""
+		echo "Extracted values:"
+		echo "  ORBNET_API_KEY: ${ORBNET_API_KEY:0:20}... (length: ${#ORBNET_API_KEY})"
+		echo "  JWT_SECRET: ${JWT_SECRET:0:20}... (length: ${#JWT_SECRET})"
+		echo "  ORBNET_SERVER_ID: $ORBNET_SERVER_ID"
+		echo -e "${YELLOW}=========================${NC}\n"
+
+		if [ "$ORBNET_API_KEY" = "null" ] || [ -z "$ORBNET_API_KEY" ]; then
+			echo -e "${RED}❌ Still failed to register server${NC}"
+			echo "Response: $REGISTER_RESPONSE"
+			exit 1
+		fi
+
+		if [ -z "$JWT_SECRET" ] || [ "$JWT_SECRET" = "null" ]; then
+			echo -e "${RED}❌ JWT Secret is empty or null!${NC}"
+			echo "Full response: $REGISTER_RESPONSE"
+			exit 1
+		fi
+
+		echo -e "${GREEN}✅ Server registered with unique name${NC}"
+	else
+		echo -e "${RED}❌ Failed to register server with OrbNet API${NC}"
+		echo "Response: $REGISTER_RESPONSE"
+		exit 1
+	fi
 fi
 
 echo -e "${GREEN}✅ Server registered with OrbNet${NC}"
@@ -232,16 +232,16 @@ echo -e "${GREEN}Region: ${REGION}${NC}"
 # ============================================
 echo -e "\n${YELLOW}📦 Creating resource group for ${REGION}...${NC}"
 az group create \
-  --name $RESOURCE_GROUP \
-  --location $REGION \
-  --tags Environment=Production Application=OrbX Region=$REGION
+	--name $RESOURCE_GROUP \
+	--location $REGION \
+	--tags Environment=Production Application=OrbX Region=$REGION
 
 # ============================================
 # Step 4: Create YAML deployment file
 # ============================================
 echo -e "\n${YELLOW}📝 Creating deployment configuration...${NC}"
 
-cat > /tmp/orbx-${REGION}-deploy.yaml <<EOF
+cat >/tmp/orbx-${REGION}-deploy.yaml <<EOF
 apiVersion: '2021-09-01'
 location: ${REGION}
 name: ${CONTAINER_NAME}
@@ -302,8 +302,8 @@ EOF
 # ============================================
 echo -e "\n${YELLOW}🚀 Deploying container to ${REGION}...${NC}"
 az container create \
-  --resource-group $RESOURCE_GROUP \
-  --file /tmp/orbx-${REGION}-deploy.yaml
+	--resource-group $RESOURCE_GROUP \
+	--file /tmp/orbx-${REGION}-deploy.yaml
 
 echo -e "${GREEN}✅ Container deployed${NC}"
 
@@ -318,10 +318,10 @@ sleep 30
 
 # Get FQDN
 FQDN=$(az container show \
-  --resource-group $RESOURCE_GROUP \
-  --name $CONTAINER_NAME \
-  --query "ipAddress.fqdn" \
-  --output tsv)
+	--resource-group $RESOURCE_GROUP \
+	--name $CONTAINER_NAME \
+	--query "ipAddress.fqdn" \
+	--output tsv)
 
 # ============================================
 # Step 6: Health check
@@ -330,36 +330,36 @@ echo -e "\n${YELLOW}🔍 Running health check...${NC}"
 HEALTH_RESPONSE=$(curl -k -s "https://$FQDN:8443/health" || echo "failed")
 
 if echo "$HEALTH_RESPONSE" | grep -q "healthy"; then
-  echo -e "${GREEN}✅ Health check PASSED${NC}"
-  
-  # Update server status in OrbNet to ONLINE
-  curl -s -X POST "$ORBNET_ENDPOINT" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $ORBNET_AUTH_TOKEN" \
-    -d '{
+	echo -e "${GREEN}✅ Health check PASSED${NC}"
+
+	# Update server status in OrbNet to ONLINE
+	curl -s -X POST "$ORBNET_ENDPOINT" \
+		-H "Content-Type: application/json" \
+		-H "Authorization: Bearer $ORBNET_AUTH_TOKEN" \
+		-d '{
       "query": "mutation UpdateOrbXServerStatus($serverId: ID!, $online: Boolean!) { updateOrbXServerStatus(serverId: $serverId, online: $online) { id online } }",
       "variables": {
         "serverId": "'"$ORBNET_SERVER_ID"'",
         "online": true
       }
-    }' > /dev/null
-  
-  echo -e "${GREEN}✅ Server status updated to ONLINE in OrbNet${NC}"
+    }' >/dev/null
+
+	echo -e "${GREEN}✅ Server status updated to ONLINE in OrbNet${NC}"
 else
-  echo -e "${RED}❌ Health check FAILED${NC}"
-  echo "Response: $HEALTH_RESPONSE"
-  
-  # Update server status to ERROR
-  curl -s -X POST "$ORBNET_ENDPOINT" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $ORBNET_AUTH_TOKEN" \
-    -d '{
+	echo -e "${RED}❌ Health check FAILED${NC}"
+	echo "Response: $HEALTH_RESPONSE"
+
+	# Update server status to ERROR
+	curl -s -X POST "$ORBNET_ENDPOINT" \
+		-H "Content-Type: application/json" \
+		-H "Authorization: Bearer $ORBNET_AUTH_TOKEN" \
+		-d '{
       "query": "mutation UpdateOrbXServerStatus($serverId: ID!, $online: Boolean!) { updateOrbXServerStatus(serverId: $serverId, online: $online) { id online } }",
       "variables": {
         "serverId": "'"$ORBNET_SERVER_ID"'",
         "online": false
       }
-    }' > /dev/null
+    }' >/dev/null
 fi
 
 # ============================================
@@ -378,4 +378,4 @@ echo -e "${YELLOW}curl -k https://$FQDN:8443/health${NC}"
 echo -e "${YELLOW}curl -k https://$FQDN:8443/metrics${NC}"
 
 # Save deployment info
-echo "$FQDN|$ORBNET_SERVER_ID|$REGION|$WG_PUBLIC_KEY" >> deployed-servers.txt
+echo "$FQDN|$ORBNET_SERVER_ID|$REGION|$WG_PUBLIC_KEY" >>deployed-servers.txt

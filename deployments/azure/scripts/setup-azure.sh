@@ -27,9 +27,9 @@ echo "=============================================="
 # ============================================
 echo -e "\n${YELLOW}📦 Step 1: Creating Resource Group...${NC}"
 az group create \
-  --name $RESOURCE_GROUP \
-  --location $LOCATION \
-  --tags Environment=Production Application=OrbX
+	--name $RESOURCE_GROUP \
+	--location $LOCATION \
+	--tags Environment=Production Application=OrbX
 
 echo -e "${GREEN}✅ Resource Group created${NC}"
 
@@ -38,10 +38,10 @@ echo -e "${GREEN}✅ Resource Group created${NC}"
 # ============================================
 echo -e "\n${YELLOW}🐳 Step 2: Creating Container Registry...${NC}"
 az acr create \
-  --resource-group $RESOURCE_GROUP \
-  --name $ACR_NAME \
-  --sku Standard \
-  --admin-enabled true
+	--resource-group $RESOURCE_GROUP \
+	--name $ACR_NAME \
+	--sku Standard \
+	--admin-enabled true
 
 echo -e "${GREEN}✅ Container Registry created${NC}"
 
@@ -63,20 +63,20 @@ echo "Current user object ID: $USER_OBJECT_ID"
 
 # Create Key Vault
 az keyvault create \
-  --name $KEYVAULT_NAME \
-  --resource-group $RESOURCE_GROUP \
-  --location $LOCATION \
-  --enable-rbac-authorization false \
-  --enabled-for-deployment true \
-  --enabled-for-template-deployment true
+	--name $KEYVAULT_NAME \
+	--resource-group $RESOURCE_GROUP \
+	--location $LOCATION \
+	--enable-rbac-authorization false \
+	--enabled-for-deployment true \
+	--enabled-for-template-deployment true
 
 # Set access policy for current user
 echo -e "\n${YELLOW}Setting Key Vault access policy...${NC}"
 az keyvault set-policy \
-  --name $KEYVAULT_NAME \
-  --object-id $USER_OBJECT_ID \
-  --secret-permissions get list set delete \
-  --certificate-permissions get list create delete
+	--name $KEYVAULT_NAME \
+	--object-id $USER_OBJECT_ID \
+	--secret-permissions get list set delete \
+	--certificate-permissions get list create delete
 
 echo -e "${GREEN}✅ Key Vault created with proper permissions${NC}"
 
@@ -96,8 +96,8 @@ ORBNET_ENDPOINT=${ORBNET_ENDPOINT:-https://api.orbvpn.com/graphql}
 # Login to OrbNet and get authentication token
 echo -e "\n${YELLOW}Authenticating with OrbNet API...${NC}"
 AUTH_RESPONSE=$(curl -s -X POST "$ORBNET_ENDPOINT" \
-  -H "Content-Type: application/json" \
-  -d '{
+	-H "Content-Type: application/json" \
+	-d '{
     "query": "mutation Login($email: String!, $password: String!) { login(email: $email, password: $password) { token user { id email role } } }",
     "variables": {
       "email": "'"$ORBNET_ADMIN_EMAIL"'",
@@ -109,9 +109,9 @@ AUTH_RESPONSE=$(curl -s -X POST "$ORBNET_ENDPOINT" \
 AUTH_TOKEN=$(echo $AUTH_RESPONSE | jq -r '.data.login.token')
 
 if [ "$AUTH_TOKEN" = "null" ] || [ -z "$AUTH_TOKEN" ]; then
-  echo -e "${RED}❌ Failed to authenticate with OrbNet API${NC}"
-  echo "Response: $AUTH_RESPONSE"
-  exit 1
+	echo -e "${RED}❌ Failed to authenticate with OrbNet API${NC}"
+	echo "Response: $AUTH_RESPONSE"
+	exit 1
 fi
 
 echo -e "${GREEN}✅ Authenticated with OrbNet API${NC}"
@@ -119,9 +119,9 @@ echo -e "${GREEN}✅ Authenticated with OrbNet API${NC}"
 # Register the server and get credentials
 echo -e "\n${YELLOW}Registering OrbX server with OrbNet...${NC}"
 REGISTER_RESPONSE=$(curl -s -X POST "$ORBNET_ENDPOINT" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
-  -d '{
+	-H "Content-Type: application/json" \
+	-H "Authorization: Bearer $AUTH_TOKEN" \
+	-d '{
     "query": "mutation RegisterOrbxServer($input: OrbxServerInput!) { registerOrbxServer(input: $input) { id name region endpoint apiKey jwtSecret publicKey status } }",
     "variables": {
       "input": {
@@ -139,9 +139,9 @@ JWT_SECRET=$(echo $REGISTER_RESPONSE | jq -r '.data.registerOrbxServer.jwtSecret
 ORBNET_SERVER_ID=$(echo $REGISTER_RESPONSE | jq -r '.data.registerOrbxServer.id')
 
 if [ "$ORBNET_API_KEY" = "null" ] || [ -z "$ORBNET_API_KEY" ]; then
-  echo -e "${RED}❌ Failed to register server with OrbNet API${NC}"
-  echo "Response: $REGISTER_RESPONSE"
-  exit 1
+	echo -e "${RED}❌ Failed to register server with OrbNet API${NC}"
+	echo "Response: $REGISTER_RESPONSE"
+	exit 1
 fi
 
 echo -e "${GREEN}✅ Server registered with OrbNet API${NC}"
@@ -154,38 +154,38 @@ echo -e "\n${YELLOW}🔐 Step 5: Storing secrets in Key Vault...${NC}"
 
 # Store JWT Secret
 az keyvault secret set \
-  --vault-name $KEYVAULT_NAME \
-  --name "JWT-SECRET" \
-  --value "$JWT_SECRET"
+	--vault-name $KEYVAULT_NAME \
+	--name "JWT-SECRET" \
+	--value "$JWT_SECRET"
 
 # Store OrbNet API Key
 az keyvault secret set \
-  --vault-name $KEYVAULT_NAME \
-  --name "ORBNET-API-KEY" \
-  --value "$ORBNET_API_KEY"
+	--vault-name $KEYVAULT_NAME \
+	--name "ORBNET-API-KEY" \
+	--value "$ORBNET_API_KEY"
 
 # Store OrbNet Endpoint
 az keyvault secret set \
-  --vault-name $KEYVAULT_NAME \
-  --name "ORBNET-ENDPOINT" \
-  --value "$ORBNET_ENDPOINT"
+	--vault-name $KEYVAULT_NAME \
+	--name "ORBNET-ENDPOINT" \
+	--value "$ORBNET_ENDPOINT"
 
 # Store OrbNet Server ID
 az keyvault secret set \
-  --vault-name $KEYVAULT_NAME \
-  --name "ORBNET-SERVER-ID" \
-  --value "$ORBNET_SERVER_ID"
+	--vault-name $KEYVAULT_NAME \
+	--name "ORBNET-SERVER-ID" \
+	--value "$ORBNET_SERVER_ID"
 
 # Store ACR credentials
 az keyvault secret set \
-  --vault-name $KEYVAULT_NAME \
-  --name "ACR-USERNAME" \
-  --value "$ACR_USERNAME"
+	--vault-name $KEYVAULT_NAME \
+	--name "ACR-USERNAME" \
+	--value "$ACR_USERNAME"
 
 az keyvault secret set \
-  --vault-name $KEYVAULT_NAME \
-  --name "ACR-PASSWORD" \
-  --value "$ACR_PASSWORD"
+	--vault-name $KEYVAULT_NAME \
+	--name "ACR-PASSWORD" \
+	--value "$ACR_PASSWORD"
 
 echo -e "${GREEN}✅ Secrets stored in Key Vault${NC}"
 
@@ -194,11 +194,11 @@ echo -e "${GREEN}✅ Secrets stored in Key Vault${NC}"
 # ============================================
 echo -e "\n${YELLOW}🌐 Step 6: Creating Virtual Network...${NC}"
 az network vnet create \
-  --resource-group $RESOURCE_GROUP \
-  --name $VNET_NAME \
-  --address-prefix 10.0.0.0/16 \
-  --subnet-name $SUBNET_NAME \
-  --subnet-prefix 10.0.1.0/24
+	--resource-group $RESOURCE_GROUP \
+	--name $VNET_NAME \
+	--address-prefix 10.0.0.0/16 \
+	--subnet-name $SUBNET_NAME \
+	--subnet-prefix 10.0.1.0/24
 
 echo -e "${GREEN}✅ Virtual Network created${NC}"
 

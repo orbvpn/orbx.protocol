@@ -38,7 +38,7 @@ TLS_KEY_DECODED=$(echo "$TLS_KEY" | base64 -d)
 
 # Create config file with embedded secrets
 echo -e "\n${YELLOW}📝 Creating configuration...${NC}"
-cat > /tmp/orbx-config.yaml <<EOF
+cat >/tmp/orbx-config.yaml <<EOF
 server:
   host: "0.0.0.0"
   port: "8443"
@@ -80,7 +80,7 @@ EOF
 
 # Create init script to setup certs
 echo -e "\n${YELLOW}📜 Creating initialization script...${NC}"
-cat > /tmp/init.sh <<'INITEOF'
+cat >/tmp/init.sh <<'INITEOF'
 #!/bin/sh
 mkdir -p /etc/orbx/certs
 echo "$TLS_CERT" | base64 -d > /etc/orbx/certs/cert.pem
@@ -92,46 +92,46 @@ INITEOF
 # Deploy container with proper configuration
 echo -e "\n${YELLOW}🚀 Deploying container...${NC}"
 az container create \
-  --resource-group $RESOURCE_GROUP \
-  --name $CONTAINER_NAME \
-  --image $ACR_NAME.azurecr.io/orbx-protocol:latest \
-  --dns-name-label $DNS_NAME \
-  --ports 8443 51820 \
-  --protocol TCP UDP \
-  --cpu 2 \
-  --memory 4 \
-  --registry-login-server $ACR_NAME.azurecr.io \
-  --registry-username $ACR_USERNAME \
-  --registry-password $ACR_PASSWORD \
-  --environment-variables \
-    ORBNET_ENDPOINT="$ORBNET_ENDPOINT" \
-    WIREGUARD_ENABLED="true" \
-  --secure-environment-variables \
-    JWT_SECRET="$JWT_SECRET" \
-    ORBNET_API_KEY="$ORBNET_API_KEY" \
-    WG_PRIVATE_KEY="$WG_PRIVATE_KEY" \
-    WG_PUBLIC_KEY="$WG_PUBLIC_KEY" \
-    TLS_CERT="$TLS_CERT" \
-    TLS_KEY="$TLS_KEY" \
-  --restart-policy Always \
-  --command-line "/bin/sh -c 'mkdir -p /etc/orbx/certs && echo $TLS_CERT | base64 -d > /etc/orbx/certs/cert.pem && echo $TLS_KEY | base64 -d > /etc/orbx/certs/key.pem && chmod 600 /etc/orbx/certs/*.pem && /app/orbx-protocol -config /etc/orbx/config.yaml'"
+	--resource-group $RESOURCE_GROUP \
+	--name $CONTAINER_NAME \
+	--image $ACR_NAME.azurecr.io/orbx-protocol:latest \
+	--dns-name-label $DNS_NAME \
+	--ports 8443 51820 \
+	--protocol TCP UDP \
+	--cpu 2 \
+	--memory 4 \
+	--registry-login-server $ACR_NAME.azurecr.io \
+	--registry-username $ACR_USERNAME \
+	--registry-password $ACR_PASSWORD \
+	--environment-variables \
+	ORBNET_ENDPOINT="$ORBNET_ENDPOINT" \
+	WIREGUARD_ENABLED="true" \
+	--secure-environment-variables \
+	JWT_SECRET="$JWT_SECRET" \
+	ORBNET_API_KEY="$ORBNET_API_KEY" \
+	WG_PRIVATE_KEY="$WG_PRIVATE_KEY" \
+	WG_PUBLIC_KEY="$WG_PUBLIC_KEY" \
+	TLS_CERT="$TLS_CERT" \
+	TLS_KEY="$TLS_KEY" \
+	--restart-policy Always \
+	--command-line "/bin/sh -c 'mkdir -p /etc/orbx/certs && echo $TLS_CERT | base64 -d > /etc/orbx/certs/cert.pem && echo $TLS_KEY | base64 -d > /etc/orbx/certs/key.pem && chmod 600 /etc/orbx/certs/*.pem && /app/orbx-protocol -config /etc/orbx/config.yaml'"
 
 echo -e "${GREEN}✅ Container deployed successfully${NC}"
 
 # Get container details
 echo -e "\n${YELLOW}📊 Container Status:${NC}"
 az container show \
-  --resource-group $RESOURCE_GROUP \
-  --name $CONTAINER_NAME \
-  --query "{FQDN:ipAddress.fqdn,IP:ipAddress.ip,ProvisioningState:provisioningState}" \
-  --output table
+	--resource-group $RESOURCE_GROUP \
+	--name $CONTAINER_NAME \
+	--query "{FQDN:ipAddress.fqdn,IP:ipAddress.ip,ProvisioningState:provisioningState}" \
+	--output table
 
 # Get FQDN
 FQDN=$(az container show \
-  --resource-group $RESOURCE_GROUP \
-  --name $CONTAINER_NAME \
-  --query "ipAddress.fqdn" \
-  --output tsv)
+	--resource-group $RESOURCE_GROUP \
+	--name $CONTAINER_NAME \
+	--query "ipAddress.fqdn" \
+	--output tsv)
 
 echo -e "\n${GREEN}============================================${NC}"
 echo -e "${GREEN}🎉 Deployment Complete!${NC}"

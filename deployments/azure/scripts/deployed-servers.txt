@@ -5,3 +5,4 @@ orbx-eastus.eastus.azurecontainer.io|12|eastus|aJ1HCD8WV7EZqPuNDun85ET/ujCT9dtBy
 orbx-eastus.eastus.azurecontainer.io|13|eastus|REaGYOqqFjVSReO2HodYhM72JBDqw1qfQXV146imkkk=
 orbx-eastus.eastus.azurecontainer.io|14|eastus|eIsR/SLOvRiRKDWi0hZIRKTLI8THXo08BBnAgMVJWSA=
 orbx-eastus.eastus.azurecontainer.io|15|eastus|P5FB6NlNGsDPc0lL/mGTCh0lFNStAHxwQ9cTHLRFZy0=
+orbx-eastus-vm.eastus.cloudapp.azure.com|18|eastus|4PJPBk0X/PzU18D7VQyZN3bDH4WNFDoOeMuxearzCT8=|OrbX-US-eastus-20251021-213423|VM|52.234.217.147

@@ -8,7 +8,7 @@ cd /Users/nima/Developments/orbx-protocol
 echo "🏗️  Building production image with embedded certificates..."
 
 # Build production image with embedded certs
-docker build -f - -t orbxregistry.azurecr.io/orbx-protocol:prod . << 'EOF'
+docker build -f - -t orbxregistry.azurecr.io/orbx-protocol:prod . <<'EOF'
 FROM orbxregistry.azurecr.io/orbx-protocol:latest
 
 # Copy certificates from local context
