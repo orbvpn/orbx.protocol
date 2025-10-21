@@ -21,17 +21,39 @@ ACR_LOGIN_SERVER="$ACR_NAME.azurecr.io"
 echo -e "\n${YELLOW}🔐 Logging in to Azure Container Registry...${NC}"
 az acr login --name $ACR_NAME
 
-# Build multi-arch image (supports ARM and AMD64)
-echo -e "\n${YELLOW}🏗️  Building Docker image...${NC}"
-docker buildx build \
-  --platform linux/amd64,linux/arm64 \
+# Go to project root (three levels up from scripts directory)
+# scripts -> azure -> deployments -> project-root
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROJECT_ROOT="$SCRIPT_DIR/../../.."
+
+echo -e "\n${YELLOW}📂 Navigating to project root...${NC}"
+cd "$PROJECT_ROOT"
+
+# Verify Dockerfile exists
+if [ ! -f "Dockerfile" ]; then
+    echo -e "${RED}❌ Dockerfile not found at: $(pwd)/Dockerfile${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}✓ Found Dockerfile at: $(pwd)/Dockerfile${NC}"
+echo -e "${YELLOW}📂 Building from: $(pwd)${NC}"
+
+# Build for single platform (AMD64 - most common for Azure)
+echo -e "\n${YELLOW}🏗️  Building Docker image for AMD64...${NC}"
+docker build \
+  --platform linux/amd64 \
   -t $ACR_LOGIN_SERVER/$IMAGE_NAME:$VERSION \
   -t $ACR_LOGIN_SERVER/$IMAGE_NAME:$(date +%Y%m%d-%H%M%S) \
-  --push \
   -f Dockerfile \
   .
 
-echo -e "${GREEN}✅ Image built and pushed: $ACR_LOGIN_SERVER/$IMAGE_NAME:$VERSION${NC}"
+echo -e "${GREEN}✅ Image built successfully${NC}"
+
+# Push to registry
+echo -e "\n${YELLOW}⬆️  Pushing to Azure Container Registry...${NC}"
+docker push $ACR_LOGIN_SERVER/$IMAGE_NAME:$VERSION
+
+echo -e "${GREEN}✅ Image pushed successfully${NC}"
 
 # List images in registry
 echo -e "\n${YELLOW}📋 Images in registry:${NC}"
@@ -41,3 +63,4 @@ az acr repository show-tags \
   --output table
 
 echo -e "\n${GREEN}🎉 Build and push complete!${NC}"
+echo -e "${GREEN}Image: ${YELLOW}$ACR_LOGIN_SERVER/$IMAGE_NAME:$VERSION${NC}"

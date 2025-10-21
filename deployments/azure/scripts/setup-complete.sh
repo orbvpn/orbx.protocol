@@ -44,38 +44,64 @@ az group create \
 echo -e "${GREEN}✅ Resource Group created${NC}"
 
 # ============================================
-# Step 2: Create Container Registry
+# Step 2: Create or Use Existing Container Registry
 # ============================================
-echo -e "\n${YELLOW}🐳 Step 2: Creating Container Registry...${NC}"
-az acr create \
-  --resource-group $RESOURCE_GROUP \
-  --name $ACR_NAME \
-  --sku Standard \
-  --admin-enabled true \
-  --output none
+echo -e "\n${YELLOW}🐳 Step 2: Setting up Container Registry...${NC}"
+
+# Check if ACR exists
+ACR_EXISTS=$(az acr list --query "[?name=='$ACR_NAME'].name" -o tsv)
+
+if [ -z "$ACR_EXISTS" ]; then
+  echo "Creating new Container Registry..."
+  az acr create \
+    --resource-group $RESOURCE_GROUP \
+    --name $ACR_NAME \
+    --sku Standard \
+    --admin-enabled true \
+    --output none
+  echo -e "${GREEN}✅ Container Registry created${NC}"
+else
+  echo "Container Registry already exists, using existing..."
+  echo -e "${GREEN}✅ Using existing Container Registry${NC}"
+fi
 
 ACR_USERNAME=$(az acr credential show --name $ACR_NAME --query username -o tsv)
 ACR_PASSWORD=$(az acr credential show --name $ACR_NAME --query passwords[0].value -o tsv)
 
-echo -e "${GREEN}✅ Container Registry created: $ACR_NAME.azurecr.io${NC}"
+echo -e "${GREEN}Registry: $ACR_NAME.azurecr.io${NC}"
 
 # ============================================
-# Step 3: Create Key Vault (with access policies)
+# Step 3: Create or Update Key Vault
 # ============================================
-echo -e "\n${YELLOW}🔐 Step 3: Creating Key Vault...${NC}"
+echo -e "\n${YELLOW}🔐 Step 3: Setting up Key Vault...${NC}"
 
 USER_OBJECT_ID=$(az ad signed-in-user show --query id -o tsv)
 
-az keyvault create \
-  --name $KEYVAULT_NAME \
-  --resource-group $RESOURCE_GROUP \
-  --location $LOCATION \
-  --enable-rbac-authorization false \
-  --enabled-for-deployment true \
-  --enabled-for-template-deployment true \
-  --output none
+# Check if Key Vault exists
+VAULT_EXISTS=$(az keyvault list --query "[?name=='$KEYVAULT_NAME'].name" -o tsv)
 
-# Set access policy immediately
+if [ -z "$VAULT_EXISTS" ]; then
+  echo "Creating new Key Vault..."
+  az keyvault create \
+    --name $KEYVAULT_NAME \
+    --resource-group $RESOURCE_GROUP \
+    --location $LOCATION \
+    --enable-rbac-authorization false \
+    --enabled-for-deployment true \
+    --enabled-for-template-deployment true \
+    --output none
+  echo -e "${GREEN}✅ Key Vault created${NC}"
+else
+  echo "Key Vault already exists, updating settings..."
+  az keyvault update \
+    --name $KEYVAULT_NAME \
+    --enable-rbac-authorization false \
+    --output none
+  echo -e "${GREEN}✅ Key Vault updated${NC}"
+fi
+
+# Set access policy
+echo "Setting access policy..."
 az keyvault set-policy \
   --name $KEYVAULT_NAME \
   --object-id $USER_OBJECT_ID \
@@ -83,7 +109,7 @@ az keyvault set-policy \
   --certificate-permissions get list create delete \
   --output none
 
-echo -e "${GREEN}✅ Key Vault created with permissions${NC}"
+echo -e "${GREEN}✅ Key Vault permissions configured${NC}"
 
 # ============================================
 # Step 4: Store ACR credentials
@@ -102,22 +128,22 @@ echo ""
 read -p "Enter OrbNet admin email: " ORBNET_ADMIN_EMAIL
 read -sp "Enter OrbNet admin password: " ORBNET_ADMIN_PASSWORD
 echo ""
-read -p "Enter OrbNet API endpoint [https://api.orbvpn.com/graphql]: " ORBNET_ENDPOINT
-ORBNET_ENDPOINT=${ORBNET_ENDPOINT:-https://api.orbvpn.com/graphql}
+read -p "Enter OrbNet API endpoint [https://orbnet.xyz/graphql]: " ORBNET_ENDPOINT
+ORBNET_ENDPOINT=${ORBNET_ENDPOINT:-https://orbnet.xyz/graphql}
 
 # Login to OrbNet API
 echo -e "\n${YELLOW}Authenticating with OrbNet API...${NC}"
 AUTH_RESPONSE=$(curl -s -X POST "$ORBNET_ENDPOINT" \
   -H "Content-Type: application/json" \
   -d '{
-    "query": "mutation Login($email: String!, $password: String!) { login(email: $email, password: $password) { token user { id email role } } }",
+    "query": "mutation Login($email: String!, $password: String!) { login(email: $email, password: $password) { accessToken } }",
     "variables": {
       "email": "'"$ORBNET_ADMIN_EMAIL"'",
       "password": "'"$ORBNET_ADMIN_PASSWORD"'"
     }
   }')
 
-AUTH_TOKEN=$(echo $AUTH_RESPONSE | jq -r '.data.login.token' 2>/dev/null || echo "null")
+AUTH_TOKEN=$(echo $AUTH_RESPONSE | jq -r '.data.login.accessToken' 2>/dev/null || echo "null")
 
 if [ "$AUTH_TOKEN" = "null" ] || [ -z "$AUTH_TOKEN" ]; then
   echo -e "${RED}❌ Authentication failed${NC}"
