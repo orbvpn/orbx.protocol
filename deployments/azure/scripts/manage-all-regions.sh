@@ -11,15 +11,16 @@ REGIONS=(eastus westus centralus canadacentral northeurope westeurope uksouth fr
 
 case "${1:-}" in
 status)
-	echo -e "${YELLOW}Region Status Check${NC}\n"
+	echo -e "${YELLOW}Region Status Check (VMs)${NC}\n"
 	for region in "${REGIONS[@]}"; do
-		if state=$(az container show \
+		if state=$(az vm get-instance-view \
 			--resource-group "orbx-${region}-rg" \
-			--name "orbx-${region}" \
-			--query "instanceView.state" -o tsv 2>/dev/null); then
-			[ "$state" == "Running" ] &&
+			--name "orbx-${region}-vm" \
+			--query "instanceView.statuses[?starts_with(code, 'PowerState/')].displayStatus" \
+			-o tsv 2>/dev/null); then
+			[ "$state" == "VM running" ] &&
 				echo -e "$region: ${GREEN}✅ Running${NC}" ||
-				echo -e "$region: ${RED}$state${NC}"
+				echo -e "$region: ${YELLOW}$state${NC}"
 		else
 			echo -e "$region: ${RED}Not Found${NC}"
 		fi
@@ -27,40 +28,43 @@ status)
 	;;
 
 restart)
-	echo -e "${YELLOW}Restarting all servers...${NC}"
+	echo -e "${YELLOW}Restarting all VM servers...${NC}"
 	for region in "${REGIONS[@]}"; do
 		echo -n "$region: "
-		az container restart \
+		az vm restart \
 			--resource-group "orbx-${region}-rg" \
-			--name "orbx-${region}" \
-			--output none 2>/dev/null && echo "✅" || echo "❌"
+			--name "orbx-${region}-vm" \
+			--no-wait 2>/dev/null && echo "✅" || echo "❌"
 	done
+	echo -e "${YELLOW}Restart initiated (takes a few minutes)${NC}"
 	;;
 
 stop)
-	echo -e "${YELLOW}Stopping all servers...${NC}"
+	echo -e "${YELLOW}Stopping all VM servers...${NC}"
 	for region in "${REGIONS[@]}"; do
 		echo -n "$region: "
-		az container stop \
+		az vm deallocate \
 			--resource-group "orbx-${region}-rg" \
-			--name "orbx-${region}" \
-			--output none 2>/dev/null && echo "✅" || echo "❌"
+			--name "orbx-${region}-vm" \
+			--no-wait 2>/dev/null && echo "✅" || echo "❌"
 	done
+	echo -e "${YELLOW}Stop initiated (saves money)${NC}"
 	;;
 
 start)
-	echo -e "${YELLOW}Starting all servers...${NC}"
+	echo -e "${YELLOW}Starting all VM servers...${NC}"
 	for region in "${REGIONS[@]}"; do
 		echo -n "$region: "
-		az container start \
+		az vm start \
 			--resource-group "orbx-${region}-rg" \
-			--name "orbx-${region}" \
-			--output none 2>/dev/null && echo "✅" || echo "❌"
+			--name "orbx-${region}-vm" \
+			--no-wait 2>/dev/null && echo "✅" || echo "❌"
 	done
+	echo -e "${YELLOW}Start initiated${NC}"
 	;;
 
 delete)
-	echo -e "${RED}⚠️  WARNING: This will DELETE all deployments!${NC}"
+	echo -e "${RED}⚠️  WARNING: This will DELETE all VM deployments!${NC}"
 	read -p "Type 'DELETE' to confirm: " CONFIRM
 	[ "$CONFIRM" != "DELETE" ] && echo "Cancelled" && exit 0
 
@@ -76,30 +80,49 @@ delete)
 
 logs)
 	region="${2:-eastus}"
-	echo -e "${YELLOW}Viewing logs for $region...${NC}"
-	az container logs \
+	echo -e "${YELLOW}SSH into VM to view logs for $region...${NC}"
+	echo -e "${YELLOW}Command: ssh azureuser@orbx-${region}-vm.${region}.cloudapp.azure.com${NC}"
+	echo ""
+	echo -e "${YELLOW}Once connected, run:${NC}"
+	echo -e "  sudo docker logs -f orbx-server"
+	;;
+
+ssh)
+	region="${2:-eastus}"
+	echo -e "${YELLOW}Connecting to ${region} VM...${NC}"
+	az vm show \
 		--resource-group "orbx-${region}-rg" \
-		--name "orbx-${region}" \
-		--follow
+		--name "orbx-${region}-vm" \
+		--show-details \
+		--query "publicIps" -o tsv >/tmp/vm_ip.txt 2>/dev/null
+
+	VM_IP=$(cat /tmp/vm_ip.txt)
+	if [ -n "$VM_IP" ]; then
+		ssh azureuser@$VM_IP
+	else
+		echo -e "${RED}Could not find VM IP${NC}"
+	fi
 	;;
 
 *)
-	echo "OrbX Multi-Region Management"
+	echo "OrbX Multi-Region Management (VM Edition)"
 	echo ""
-	echo "Usage: $0 {status|start|stop|restart|delete|logs}"
+	echo "Usage: $0 {status|start|stop|restart|delete|logs|ssh}"
 	echo ""
 	echo "Commands:"
-	echo "  status   - Show status of all servers"
-	echo "  start    - Start all servers"
-	echo "  stop     - Stop all servers"
-	echo "  restart  - Restart all servers"
-	echo "  delete   - Delete all deployments"
-	echo "  logs     - View logs (specify region as 2nd arg)"
+	echo "  status   - Show status of all VM servers"
+	echo "  start    - Start all VM servers"
+	echo "  stop     - Stop all VM servers (deallocate to save money)"
+	echo "  restart  - Restart all VM servers"
+	echo "  delete   - Delete all VM deployments"
+	echo "  logs     - Instructions to view logs (specify region as 2nd arg)"
+	echo "  ssh      - SSH into a VM (specify region as 2nd arg)"
 	echo ""
 	echo "Examples:"
 	echo "  $0 status"
 	echo "  $0 restart"
-	echo "  $0 logs westus"
+	echo "  $0 ssh westus"
+	echo "  $0 logs eastus"
 	exit 1
 	;;
 esac

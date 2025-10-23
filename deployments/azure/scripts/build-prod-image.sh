@@ -64,4 +64,4 @@ echo "📤 Pushing to registry..."
 docker push orbxregistry.azurecr.io/orbx-protocol:prod
 
 echo "✅ Production image with embedded certificates is ready!"
-echo "You can now deploy with: ./deploy-single-region.sh eastus"
+echo "You can now deploy with: ./deploy-vm-region.sh eastus"

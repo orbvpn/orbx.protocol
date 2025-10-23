@@ -73,7 +73,7 @@ for ((i = 0; i < $TOTAL; i += $BATCH_SIZE)); do
 
 		# Run deployment in background
 		(
-			if ./deploy-single-region.sh "$region" "orbx-${region}-rg" >"deploy-${region}.log" 2>&1; then
+			if ./deploy-vm-region.sh "$region" >"deploy-${region}.log" 2>&1; then
 				echo "SUCCESS|${region}" >>deployment-status.tmp
 			else
 				echo "FAILED|${region}" >>deployment-status.tmp
