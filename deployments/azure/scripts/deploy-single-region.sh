@@ -22,6 +22,26 @@ echo -e "${GREEN}☁️  Deploying OrbX Protocol to ${REGION}${NC}"
 echo "=============================================="
 
 # ============================================
+# Step 0: Get shared JWT secret from OrbNet
+# ============================================
+echo -e "\n${YELLOW}🔐 Retrieving shared JWT secret from OrbNet...${NC}"
+
+# Query OrbNet for its JWT configuration
+SHARED_JWT_RESPONSE=$(curl -s -X POST "$ORBNET_ENDPOINT" \
+	-H "Content-Type: application/json" \
+	-H "Authorization: Bearer $ORBNET_AUTH_TOKEN" \
+	-d '{
+    "query": "query { systemInfo { jwtSecret } }"
+  }')
+
+SHARED_JWT_SECRET=$(echo $SHARED_JWT_RESPONSE | jq -r '.data.systemInfo.jwtSecret')
+
+if [ "$SHARED_JWT_SECRET" = "null" ] || [ -z "$SHARED_JWT_SECRET" ]; then
+	echo -e "${RED}❌ Failed to retrieve shared JWT secret${NC}"
+	echo -e "${YELLOW}Using registration response JWT secret instead${NC}"
+fi
+
+# ============================================
 # Step 1: Get shared secrets from Key Vault
 # ============================================
 echo -e "\n${YELLOW}🔑 Retrieving shared secrets from Key Vault...${NC}"

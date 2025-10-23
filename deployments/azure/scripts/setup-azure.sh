@@ -152,11 +152,48 @@ echo -e "${GREEN}Server ID: $ORBNET_SERVER_ID${NC}"
 # ============================================
 echo -e "\n${YELLOW}🔐 Step 5: Storing secrets in Key Vault...${NC}"
 
-# Store JWT Secret
+# ============================================
+# Get SHARED JWT secret from OrbNet
+# ============================================
+echo -e "\n${YELLOW}🔐 Configuring SHARED JWT secret...${NC}"
+
+# Check if OrbNet is running and get its JWT secret
+ORBNET_JWT_SECRET=""
+
+# Try to get from OrbNet's environment/config
+if command -v docker &>/dev/null; then
+	echo -e "${YELLOW}Checking if OrbNet container is running...${NC}"
+	ORBNET_JWT_SECRET=$(docker exec orbnet-api printenv JWT_SECRET 2>/dev/null || echo "")
+fi
+
+# If not found, prompt user
+if [ -z "$ORBNET_JWT_SECRET" ]; then
+	echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+	echo -e "${YELLOW}IMPORTANT: JWT Secret Configuration${NC}"
+	echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+	echo -e "This JWT secret must be the SAME secret that OrbNet API uses."
+	echo -e "It's in your OrbNet's application.yaml or .env file as: ${GREEN}jwt.secret${NC}"
+	echo ""
+	echo -e "If you don't have one yet, generate a new one:"
+	echo -e "${GREEN}openssl rand -base64 64${NC}"
+	echo ""
+	read -sp "Enter your SHARED JWT secret: " ORBNET_JWT_SECRET
+	echo ""
+fi
+
+if [ -z "$ORBNET_JWT_SECRET" ]; then
+	echo -e "${RED}❌ JWT secret cannot be empty!${NC}"
+	exit 1
+fi
+
+# Store in Key Vault
 az keyvault secret set \
 	--vault-name $KEYVAULT_NAME \
 	--name "JWT-SECRET" \
-	--value "$JWT_SECRET"
+	--value "$ORBNET_JWT_SECRET"
+
+echo -e "${GREEN}✅ Shared JWT secret stored in Key Vault${NC}"
+echo -e "${YELLOW}⚠️  Make sure this SAME secret is in OrbNet's application.yaml!${NC}"
 
 # Store OrbNet API Key
 az keyvault secret set \

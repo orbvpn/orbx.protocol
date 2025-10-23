@@ -27,6 +27,26 @@ echo -e "${GREEN}☁️  Deploying OrbX Protocol VM to ${REGION}${NC}"
 echo "=============================================="
 
 # ============================================
+# Step 0: Get SHARED JWT secret from Key Vault
+# ============================================
+echo -e "\n${YELLOW}🔐 Retrieving SHARED JWT secret from Key Vault...${NC}"
+
+# Get the shared JWT secret that OrbNet uses
+SHARED_JWT_SECRET=$(az keyvault secret show \
+	--vault-name $KEYVAULT_NAME \
+	--name "JWT-SECRET" \
+	--query value -o tsv)
+
+if [ -z "$SHARED_JWT_SECRET" ] || [ "$SHARED_JWT_SECRET" = "null" ]; then
+	echo -e "${RED}❌ SHARED JWT secret not found in Key Vault!${NC}"
+	echo -e "${YELLOW}This secret should be the SAME secret that OrbNet uses.${NC}"
+	echo -e "${YELLOW}Please run setup-azure.sh first to configure the shared secret.${NC}"
+	exit 1
+fi
+
+echo -e "${GREEN}✅ Retrieved shared JWT secret (length: ${#SHARED_JWT_SECRET})${NC}"
+
+# ============================================
 # Step 0: Check required tools
 # ============================================
 if ! command -v wg &>/dev/null; then
@@ -236,6 +256,13 @@ if [ "$ORBNET_API_KEY" = "null" ] || [ -z "$ORBNET_API_KEY" ]; then
 		echo "$REGISTER_RESPONSE" | jq '.' 2>/dev/null || echo "$REGISTER_RESPONSE"
 		exit 1
 	fi
+fi
+
+# ✅ VERIFY the returned JWT secret matches our SHARED secret
+if [ "$JWT_SECRET" != "$SHARED_JWT_SECRET" ]; then
+	echo -e "${RED}⚠️  WARNING: Returned JWT secret doesn't match Key Vault!${NC}"
+	echo -e "${YELLOW}Using Key Vault secret instead...${NC}"
+	JWT_SECRET="$SHARED_JWT_SECRET"
 fi
 
 echo -e "${GREEN}✅ Server registered with OrbNet${NC}"
