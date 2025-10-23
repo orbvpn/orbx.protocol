@@ -71,11 +71,13 @@ fi
 # ============================================
 echo -e "\n${YELLOW}🔑 Retrieving shared secrets from Key Vault...${NC}"
 ORBNET_ENDPOINT=$(az keyvault secret show --vault-name $KEYVAULT_NAME --name "ORBNET-ENDPOINT" --query value -o tsv)
+ORBNET_AUTH_TOKEN=$(az keyvault secret show --vault-name $KEYVAULT_NAME --name "ORBNET-AUTH-TOKEN" --query value -o tsv)
 ACR_USERNAME=$(az keyvault secret show --vault-name $KEYVAULT_NAME --name "ACR-USERNAME" --query value -o tsv)
 ACR_PASSWORD=$(az keyvault secret show --vault-name $KEYVAULT_NAME --name "ACR-PASSWORD" --query value -o tsv)
-TLS_CERT=$(az keyvault secret show --vault-name $KEYVAULT_NAME --name "TLS-CERT" --query value -o tsv)
-TLS_KEY=$(az keyvault secret show --vault-name $KEYVAULT_NAME --name "TLS-KEY" --query value -o tsv)
-ORBNET_AUTH_TOKEN=$(az keyvault secret show --vault-name $KEYVAULT_NAME --name "ORBNET-AUTH-TOKEN" --query value -o tsv)
+
+# ✅ TLS certs will be generated uniquely on each VM
+echo -e "${GREEN}✅ Retrieved all secrets from Key Vault${NC}"
+echo -e "${YELLOW}TLS certificates will be generated uniquely on each VM${NC}"
 
 # Validate secrets were retrieved
 if [ -z "$ORBNET_ENDPOINT" ] || [ -z "$ORBNET_AUTH_TOKEN" ]; then
@@ -430,8 +432,15 @@ docker rm orbx-server 2>/dev/null || true
 # Create certificate directory and save TLS certificates
 echo "Setting up TLS certificates..."
 mkdir -p /etc/orbx/certs
-echo "${TLS_CERT}" | base64 -d > /etc/orbx/certs/cert.pem
-echo "${TLS_KEY}" | base64 -d > /etc/orbx/certs/key.pem
+# ✅ Generate unique TLS certificate for this server
+echo "Generating unique TLS certificate for ${FQDN}..."
+openssl req -x509 -newkey rsa:4096 -nodes \
+  -keyout /etc/orbx/certs/key.pem \
+  -out /etc/orbx/certs/cert.pem \
+  -days 365 \
+  -subj "/C=US/ST=Azure/L=${REGION}/O=OrbVPN/CN=${FQDN}"
+chmod 600 /etc/orbx/certs/*.pem
+echo "✓ TLS certificate generated"
 chmod 600 /etc/orbx/certs/key.pem
 chmod 644 /etc/orbx/certs/cert.pem
 
@@ -459,8 +468,8 @@ docker run -d \\
   -e WIREGUARD_ENABLED="true" \\
   -e WG_PRIVATE_KEY="${WG_PRIVATE_KEY}" \\
   -e WG_PUBLIC_KEY="${WG_PUBLIC_KEY}" \\
-  -e TLS_CERT="\$(cat /etc/orbx/certs/cert.pem | base64 -w 0)" \\
-  -e TLS_KEY="\$(cat /etc/orbx/certs/key.pem | base64 -w 0)" \\
+  # -e TLS_CERT="\$(cat /etc/orbx/certs/cert.pem | base64 -w 0)" \\
+  # -e TLS_KEY="\$(cat /etc/orbx/certs/key.pem | base64 -w 0)" \\
   ${ACR_NAME}.azurecr.io/orbx-protocol:prod
 
 echo "[OK] OrbX container started"
@@ -491,8 +500,15 @@ docker rm orbx-server || true
 # Ensure TLS certs exist
 mkdir -p /etc/orbx/certs
 if [ ! -f /etc/orbx/certs/cert.pem ]; then
-  echo "${TLS_CERT}" | base64 -d > /etc/orbx/certs/cert.pem
-  echo "${TLS_KEY}" | base64 -d > /etc/orbx/certs/key.pem
+# ✅ Generate unique TLS certificate for this server
+  echo "Generating unique TLS certificate for ${FQDN}..."
+  openssl req -x509 -newkey rsa:4096 -nodes \
+    -keyout /etc/orbx/certs/key.pem \
+    -out /etc/orbx/certs/cert.pem \
+    -days 365 \
+    -subj "/C=US/ST=Azure/L=${REGION}/O=OrbVPN/CN=${FQDN}"
+  chmod 600 /etc/orbx/certs/*.pem
+  echo "✓ TLS certificate generated"
   chmod 600 /etc/orbx/certs/key.pem
   chmod 644 /etc/orbx/certs/cert.pem
   ln -sf /etc/orbx/certs/cert.pem /etc/orbx/certs/tls.crt
@@ -517,8 +533,8 @@ docker run -d \\
   -e WIREGUARD_ENABLED="true" \\
   -e WG_PRIVATE_KEY="${WG_PRIVATE_KEY}" \\
   -e WG_PUBLIC_KEY="${WG_PUBLIC_KEY}" \\
-  -e TLS_CERT="\$(cat /etc/orbx/certs/cert.pem | base64 -w 0)" \\
-  -e TLS_KEY="\$(cat /etc/orbx/certs/key.pem | base64 -w 0)" \\
+  # -e TLS_CERT="\$(cat /etc/orbx/certs/cert.pem | base64 -w 0)" \\
+  # -e TLS_KEY="\$(cat /etc/orbx/certs/key.pem | base64 -w 0)" \\
   ${ACR_NAME}.azurecr.io/orbx-protocol:prod
 UPDATE_EOF
 

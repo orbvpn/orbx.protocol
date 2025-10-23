@@ -84,21 +84,21 @@ echo -e "${GREEN}✅ Key Vault created with proper permissions${NC}"
 # Step 4: Get OrbNet credentials
 # ============================================
 echo -e "\n${YELLOW}🔑 Step 4: OrbNet API Configuration...${NC}"
-echo -e "${YELLOW}We'll register this server with OrbNet API and get credentials automatically${NC}"
+echo -e "${YELLOW}We'll authenticate with OrbNet API for server registration${NC}"
 
-# Prompt for OrbNet admin credentials (used once to register the server)
+# Prompt for OrbNet admin credentials
 read -p "Enter OrbNet admin email: " ORBNET_ADMIN_EMAIL
 read -sp "Enter OrbNet admin password: " ORBNET_ADMIN_PASSWORD
 echo ""
-read -p "Enter OrbNet API endpoint (default: https://api.orbvpn.com/graphql): " ORBNET_ENDPOINT
-ORBNET_ENDPOINT=${ORBNET_ENDPOINT:-https://api.orbvpn.com/graphql}
+read -p "Enter OrbNet API endpoint (default: https://orbnet.xyz/graphql): " ORBNET_ENDPOINT
+ORBNET_ENDPOINT=${ORBNET_ENDPOINT:-https://orbnet.xyz/graphql}
 
 # Login to OrbNet and get authentication token
 echo -e "\n${YELLOW}Authenticating with OrbNet API...${NC}"
 AUTH_RESPONSE=$(curl -s -X POST "$ORBNET_ENDPOINT" \
 	-H "Content-Type: application/json" \
 	-d '{
-    "query": "mutation Login($email: String!, $password: String!) { login(email: $email, password: $password) { token user { id email role } } }",
+    "query": "mutation Login($email: String!, $password: String!) { login(email: $email, password: $password) { accessToken user { id email role } } }",
     "variables": {
       "email": "'"$ORBNET_ADMIN_EMAIL"'",
       "password": "'"$ORBNET_ADMIN_PASSWORD"'"
@@ -106,9 +106,9 @@ AUTH_RESPONSE=$(curl -s -X POST "$ORBNET_ENDPOINT" \
   }')
 
 # Extract token
-AUTH_TOKEN=$(echo $AUTH_RESPONSE | jq -r '.data.login.token')
+ORBNET_AUTH_TOKEN=$(echo $AUTH_RESPONSE | jq -r '.data.login.accessToken')
 
-if [ "$AUTH_TOKEN" = "null" ] || [ -z "$AUTH_TOKEN" ]; then
+if [ "$ORBNET_AUTH_TOKEN" = "null" ] || [ -z "$ORBNET_AUTH_TOKEN" ]; then
 	echo -e "${RED}❌ Failed to authenticate with OrbNet API${NC}"
 	echo "Response: $AUTH_RESPONSE"
 	exit 1
@@ -116,36 +116,19 @@ fi
 
 echo -e "${GREEN}✅ Authenticated with OrbNet API${NC}"
 
-# Register the server and get credentials
-echo -e "\n${YELLOW}Registering OrbX server with OrbNet...${NC}"
-REGISTER_RESPONSE=$(curl -s -X POST "$ORBNET_ENDPOINT" \
-	-H "Content-Type: application/json" \
-	-H "Authorization: Bearer $AUTH_TOKEN" \
-	-d '{
-    "query": "mutation RegisterOrbxServer($input: OrbxServerInput!) { registerOrbxServer(input: $input) { id name region endpoint apiKey jwtSecret publicKey status } }",
-    "variables": {
-      "input": {
-        "name": "OrbX - East US",
-        "region": "eastus",
-        "endpoint": "https://orbx-eastus.azurecontainer.io:8443",
-        "status": "PROVISIONING"
-      }
-    }
-  }')
+# Store OrbNet credentials in Key Vault
+az keyvault secret set \
+	--vault-name $KEYVAULT_NAME \
+	--name "ORBNET-ENDPOINT" \
+	--value "$ORBNET_ENDPOINT" >/dev/null
 
-# Extract credentials from response
-ORBNET_API_KEY=$(echo $REGISTER_RESPONSE | jq -r '.data.registerOrbxServer.apiKey')
-JWT_SECRET=$(echo $REGISTER_RESPONSE | jq -r '.data.registerOrbxServer.jwtSecret')
-ORBNET_SERVER_ID=$(echo $REGISTER_RESPONSE | jq -r '.data.registerOrbxServer.id')
+az keyvault secret set \
+	--vault-name $KEYVAULT_NAME \
+	--name "ORBNET-AUTH-TOKEN" \
+	--value "$ORBNET_AUTH_TOKEN" >/dev/null
 
-if [ "$ORBNET_API_KEY" = "null" ] || [ -z "$ORBNET_API_KEY" ]; then
-	echo -e "${RED}❌ Failed to register server with OrbNet API${NC}"
-	echo "Response: $REGISTER_RESPONSE"
-	exit 1
-fi
-
-echo -e "${GREEN}✅ Server registered with OrbNet API${NC}"
-echo -e "${GREEN}Server ID: $ORBNET_SERVER_ID${NC}"
+echo -e "${GREEN}✅ OrbNet credentials stored in Key Vault${NC}"
+echo -e "${YELLOW}These credentials will be used by deploy scripts to register servers${NC}"
 
 # ============================================
 # Step 5: Store secrets in Key Vault
@@ -186,58 +169,29 @@ if [ -z "$ORBNET_JWT_SECRET" ]; then
 	exit 1
 fi
 
-# Store in Key Vault
+# Store JWT secret in Key Vault
 az keyvault secret set \
 	--vault-name $KEYVAULT_NAME \
 	--name "JWT-SECRET" \
-	--value "$ORBNET_JWT_SECRET"
+	--value "$ORBNET_JWT_SECRET" >/dev/null
 
 echo -e "${GREEN}✅ Shared JWT secret stored in Key Vault${NC}"
 echo -e "${YELLOW}⚠️  Make sure this SAME secret is in OrbNet's application.yaml!${NC}"
 
-# Store OrbNet API Key
-az keyvault secret set \
-	--vault-name $KEYVAULT_NAME \
-	--name "ORBNET-API-KEY" \
-	--value "$ORBNET_API_KEY"
+# Store ACR credentials (retrieved in Step 2)
+echo -e "\n${YELLOW}Storing Container Registry credentials...${NC}"
 
-# Store OrbNet Endpoint
-az keyvault secret set \
-	--vault-name $KEYVAULT_NAME \
-	--name "ORBNET-ENDPOINT" \
-	--value "$ORBNET_ENDPOINT"
-
-# Store OrbNet Server ID
-az keyvault secret set \
-	--vault-name $KEYVAULT_NAME \
-	--name "ORBNET-SERVER-ID" \
-	--value "$ORBNET_SERVER_ID"
-
-# Store ACR credentials
 az keyvault secret set \
 	--vault-name $KEYVAULT_NAME \
 	--name "ACR-USERNAME" \
-	--value "$ACR_USERNAME"
+	--value "$ACR_USERNAME" >/dev/null
 
 az keyvault secret set \
 	--vault-name $KEYVAULT_NAME \
 	--name "ACR-PASSWORD" \
-	--value "$ACR_PASSWORD"
+	--value "$ACR_PASSWORD" >/dev/null
 
-echo -e "${GREEN}✅ Secrets stored in Key Vault${NC}"
-
-# ============================================
-# Step 6: Create Virtual Network
-# ============================================
-echo -e "\n${YELLOW}🌐 Step 6: Creating Virtual Network...${NC}"
-az network vnet create \
-	--resource-group $RESOURCE_GROUP \
-	--name $VNET_NAME \
-	--address-prefix 10.0.0.0/16 \
-	--subnet-name $SUBNET_NAME \
-	--subnet-prefix 10.0.1.0/24
-
-echo -e "${GREEN}✅ Virtual Network created${NC}"
+echo -e "${GREEN}✅ All secrets stored in Key Vault${NC}"
 
 # ============================================
 # Summary
