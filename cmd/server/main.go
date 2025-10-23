@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -350,44 +351,64 @@ func handleWireGuardConnect(router *protocol.Router) func(http.ResponseWriter, *
 			PublicKey string `json:"publicKey"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			log.Printf("Failed to decode request: %v", err)
 			http.Error(w, "Invalid request", http.StatusBadRequest)
 			return
 		}
 
-		// Get user ID from JWT token (set by auth middleware)
-		userID, ok := r.Context().Value("userID").(string)
-		if !ok || userID == "" {
+		// Get user claims from context using the auth helper function
+		userClaims, err := auth.GetUserFromContext(r.Context())
+		if err != nil {
+			log.Printf("Failed to get user from context: %v", err)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 
+		// Convert user ID to string
+		userIDString := fmt.Sprintf("%d", userClaims.UserID)
+
+		log.Printf("🔵 WireGuard connect request from user %s (%s)", userIDString, userClaims.Email)
+
 		// Get WireGuard manager
 		wgMgr := router.GetWireGuardHandler()
 		if wgMgr == nil {
+			log.Printf("WireGuard not enabled")
 			http.Error(w, "WireGuard not enabled", http.StatusServiceUnavailable)
 			return
 		}
 
 		// Add peer to WireGuard
-		clientIP, err := wgMgr.AddPeer(userID, req.PublicKey)
+		clientIP, err := wgMgr.AddPeer(userIDString, req.PublicKey)
 		if err != nil {
-			log.Printf("Failed to add WireGuard peer for user %s: %v", userID, err)
+			log.Printf("❌ Failed to add WireGuard peer for user %s: %v", userIDString, err)
 			http.Error(w, "Failed to add peer", http.StatusInternalServerError)
 			return
 		}
 
-		log.Printf("✅ Added WireGuard peer for user %s: %s (IP: %s)", userID, req.PublicKey[:20]+"...", clientIP)
+		log.Printf("✅ Added WireGuard peer for user %s (%s): %s (IP: %s)",
+			userIDString, userClaims.Email, req.PublicKey[:20]+"...", clientIP)
+
+		// Get server hostname for endpoint
+		serverHost := r.Host
+		if idx := strings.Index(serverHost, ":"); idx != -1 {
+			serverHost = serverHost[:idx]
+		}
 
 		// Return peer configuration
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		response := map[string]interface{}{
 			"success":             true,
 			"serverPublicKey":     wgMgr.GetPublicKey(),
 			"clientIP":            clientIP.String(),
-			"allowedIPs":          "0.0.0.0/0",
+			"serverEndpoint":      fmt.Sprintf("%s:51820", serverHost),
+			"allowedIPs":          "0.0.0.0/0, ::/0",
 			"dns":                 wgMgr.GetDNS(),
 			"mtu":                 wgMgr.GetMTU(),
 			"persistentKeepalive": 25,
-		})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			log.Printf("Failed to encode response: %v", err)
+		}
 	}
 }

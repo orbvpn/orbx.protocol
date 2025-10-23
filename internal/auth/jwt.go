@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -100,6 +101,7 @@ func Middleware(auth *JWTAuthenticator, next http.Handler) http.Handler {
 		// Check Bearer prefix
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
+			log.Printf("❌ Invalid authorization header format: %s", authHeader) // ADD THIS
 			http.Error(w, "Invalid authorization header format", http.StatusUnauthorized)
 			return
 		}
@@ -109,6 +111,7 @@ func Middleware(auth *JWTAuthenticator, next http.Handler) http.Handler {
 		// Validate token
 		claims, err := auth.ValidateToken(tokenString)
 		if err != nil {
+			log.Printf("❌ Token validation failed: %v", err) // ADD THIS
 			if errors.Is(err, ErrExpiredToken) {
 				http.Error(w, "Token has expired", http.StatusUnauthorized)
 			} else {
@@ -116,6 +119,8 @@ func Middleware(auth *JWTAuthenticator, next http.Handler) http.Handler {
 			}
 			return
 		}
+
+		log.Printf("✅ Token validated for user: %d (%s)", claims.UserID, claims.Email) // ADD THIS
 
 		// Add claims to context
 		ctx := context.WithValue(r.Context(), userContextKey, claims)
