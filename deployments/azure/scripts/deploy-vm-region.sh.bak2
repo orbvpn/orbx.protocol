@@ -85,13 +85,13 @@ if [ -z "$ORBNET_ENDPOINT" ] || [ -z "$ORBNET_AUTH_TOKEN" ]; then
 	exit 1
 fi
 
-echo -e "${GREEN}[DONE] Secrets retrieved successfully${NC}"
+echo -e "${GREEN}✓ Secrets retrieved successfully${NC}"
 
 # Generate UNIQUE WireGuard keys for this region
 echo -e "\n${YELLOW} Generating unique WireGuard keys for ${REGION}...${NC}"
 WG_PRIVATE_KEY=$(wg genkey)
 WG_PUBLIC_KEY=$(echo "$WG_PRIVATE_KEY" | wg pubkey)
-echo -e "${GREEN}[DONE] WireGuard keys generated for this region${NC}"
+echo -e "${GREEN}✓ WireGuard keys generated for this region${NC}"
 echo -e "${GREEN}Public Key: ${WG_PUBLIC_KEY}${NC}"
 
 # ============================================
@@ -282,7 +282,7 @@ az group create \
 	--tags Environment=Production Application=OrbX Region=$REGION \
 	>/dev/null
 
-echo -e "${GREEN}[DONE] Resource group created${NC}"
+echo -e "${GREEN}✓ Resource group created${NC}"
 
 # ============================================
 # Step 4: Create network infrastructure
@@ -298,7 +298,7 @@ az network vnet create \
 	--subnet-prefix 10.0.1.0/24 \
 	>/dev/null
 
-echo -e "${GREEN}[DONE] Virtual network created${NC}"
+echo -e "${GREEN}✓ Virtual network created${NC}"
 
 # Create Network Security Group
 az network nsg create \
@@ -348,7 +348,7 @@ az network nsg rule create \
 	--protocol Tcp \
 	>/dev/null
 
-echo -e "${GREEN}[DONE] Network security group created${NC}"
+echo -e "${GREEN}✓ Network security group created${NC}"
 
 # Create Public IP
 az network public-ip create \
@@ -359,7 +359,7 @@ az network public-ip create \
 	--dns-name $VM_NAME \
 	>/dev/null
 
-echo -e "${GREEN}[DONE] Public IP created${NC}"
+echo -e "${GREEN}✓ Public IP created${NC}"
 
 # Create Network Interface
 az network nic create \
@@ -371,7 +371,7 @@ az network nic create \
 	--network-security-group $NSG_NAME \
 	>/dev/null
 
-echo -e "${GREEN}[DONE] Network interface created${NC}"
+echo -e "${GREEN}✓ Network interface created${NC}"
 
 # ============================================
 # Step 5: Create startup script
@@ -440,7 +440,7 @@ openssl req -x509 -newkey rsa:4096 -nodes \
   -days 365 \
   -subj "/C=US/ST=Azure/L=${REGION}/O=OrbVPN/CN=${FQDN}"
 chmod 600 /etc/orbx/certs/*.pem
-echo "[DONE] TLS certificate generated"
+echo "✓ TLS certificate generated"
 chmod 600 /etc/orbx/certs/key.pem
 chmod 644 /etc/orbx/certs/cert.pem
 
@@ -467,8 +467,10 @@ docker run -d \\
   -e JWT_SECRET="${JWT_SECRET}" \\
   -e WIREGUARD_ENABLED="true" \\
   -e WG_PRIVATE_KEY="${WG_PRIVATE_KEY}" \\
-  -e WG_PUBLIC_KEY="\${WG_PUBLIC_KEY}" \\
-  \${ACR_LOGIN_SERVER}/orbx-protocol:prod
+  -e WG_PUBLIC_KEY="${WG_PUBLIC_KEY}" \\
+  # -e TLS_CERT="\$(cat /etc/orbx/certs/cert.pem | base64 -w 0)" \\
+  # -e TLS_KEY="\$(cat /etc/orbx/certs/key.pem | base64 -w 0)" \\
+  ${ACR_NAME}.azurecr.io/orbx-protocol:prod
 
 echo "[OK] OrbX container started"
 
@@ -506,7 +508,7 @@ if [ ! -f /etc/orbx/certs/cert.pem ]; then
     -days 365 \
     -subj "/C=US/ST=Azure/L=${REGION}/O=OrbVPN/CN=${FQDN}"
   chmod 600 /etc/orbx/certs/*.pem
-  echo "[DONE] TLS certificate generated"
+  echo "✓ TLS certificate generated"
   chmod 600 /etc/orbx/certs/key.pem
   chmod 644 /etc/orbx/certs/cert.pem
   ln -sf /etc/orbx/certs/cert.pem /etc/orbx/certs/tls.crt
@@ -530,8 +532,10 @@ docker run -d \\
   -e JWT_SECRET="${JWT_SECRET}" \\
   -e WIREGUARD_ENABLED="true" \\
   -e WG_PRIVATE_KEY="${WG_PRIVATE_KEY}" \\
-  -e WG_PUBLIC_KEY="\${WG_PUBLIC_KEY}" \\
-  \${ACR_LOGIN_SERVER}/orbx-protocol:prod
+  -e WG_PUBLIC_KEY="${WG_PUBLIC_KEY}" \\
+  # -e TLS_CERT="\$(cat /etc/orbx/certs/cert.pem | base64 -w 0)" \\
+  # -e TLS_KEY="\$(cat /etc/orbx/certs/key.pem | base64 -w 0)" \\
+  ${ACR_NAME}.azurecr.io/orbx-protocol:prod
 UPDATE_EOF
 
 chmod +x /usr/local/bin/orbx-update.sh
@@ -542,7 +546,7 @@ echo "[OK] OrbX VM initialization complete!"
 echo "========================================="
 INIT_SCRIPT_EOF
 
-echo -e "${GREEN}[DONE] Startup script created${NC}"
+echo -e "${GREEN}✓ Startup script created${NC}"
 
 # ============================================
 # Step 6: Create VM
@@ -563,7 +567,7 @@ az vm create \
 	--tags Environment=Production Application=OrbX Region=$REGION \
 	>/dev/null
 
-echo -e "${GREEN}[DONE] Virtual machine created${NC}"
+echo -e "${GREEN}✓ Virtual machine created${NC}"
 
 # Cleanup temp file
 rm -f /tmp/orbx-vm-init.sh
@@ -581,13 +585,13 @@ PUBLIC_IP=$(az network public-ip show \
 	--query ipAddress \
 	--output tsv)
 
-echo -e "${GREEN}[DONE] VM FQDN: ${FQDN}${NC}"
-echo -e "${GREEN}[DONE] VM IP: ${PUBLIC_IP}${NC}"
+echo -e "${GREEN}✓ VM FQDN: ${FQDN}${NC}"
+echo -e "${GREEN}✓ VM IP: ${PUBLIC_IP}${NC}"
 
 # ============================================
 # Step 7: Wait for initialization
 # ============================================
-echo -e "\n${YELLOW}[WAIT] Waiting for VM initialization (this takes 4-5 minutes)...${NC}"
+echo -e "\n${YELLOW}⏳ Waiting for VM initialization (this takes 4-5 minutes)...${NC}"
 echo -e "${YELLOW}The VM is installing Docker, WireGuard, and starting the container...${NC}"
 
 # Wait for VM to complete initialization
@@ -671,4 +675,4 @@ echo -e "  ${YELLOW}curl -k https://$FQDN:8443/metrics${NC}"
 
 # Save deployment info
 echo "$FQDN|$ORBNET_SERVER_ID|$REGION|$WG_PUBLIC_KEY|$SERVER_NAME|VM|$PUBLIC_IP" >>deployed-servers.txt
-echo -e "\n${GREEN}[DONE] Deployment info saved to deployed-servers.txt${NC}"
+echo -e "\n${GREEN}✓ Deployment info saved to deployed-servers.txt${NC}"

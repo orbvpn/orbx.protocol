@@ -128,6 +128,9 @@ func main() {
 		mux.HandleFunc("/wireguard/add-peer", handleWireGuardAddPeer(protocolRouter))
 		mux.HandleFunc("/wireguard/remove-peer", handleWireGuardRemovePeer(protocolRouter))
 		mux.HandleFunc("/wireguard/status", handleWireGuardServerStatus(protocolRouter))
+
+		// Client connection endpoint (called by mobile apps with JWT auth)
+		mux.Handle("/wireguard/connect", auth.Middleware(jwtAuth, http.HandlerFunc(handleWireGuardConnect(protocolRouter))))
 	}
 
 	// Fallback handler (HTTPS)
@@ -330,6 +333,61 @@ func handleWireGuardServerStatus(router *protocol.Router) http.HandlerFunc {
 			"success":   true,
 			"publicKey": wgMgr.GetPublicKey(),
 			"peerCount": wgMgr.GetPeerCount(),
+		})
+	}
+}
+
+// handleWireGuardConnect handles client connection requests (called by mobile apps)
+func handleWireGuardConnect(router *protocol.Router) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Parse request from client
+		var req struct {
+			PublicKey string `json:"publicKey"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+
+		// Get user ID from JWT token (set by auth middleware)
+		userID, ok := r.Context().Value("userID").(string)
+		if !ok || userID == "" {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Get WireGuard manager
+		wgMgr := router.GetWireGuardHandler()
+		if wgMgr == nil {
+			http.Error(w, "WireGuard not enabled", http.StatusServiceUnavailable)
+			return
+		}
+
+		// Add peer to WireGuard
+		clientIP, err := wgMgr.AddPeer(userID, req.PublicKey)
+		if err != nil {
+			log.Printf("Failed to add WireGuard peer for user %s: %v", userID, err)
+			http.Error(w, "Failed to add peer", http.StatusInternalServerError)
+			return
+		}
+
+		log.Printf("✅ Added WireGuard peer for user %s: %s (IP: %s)", userID, req.PublicKey[:20]+"...", clientIP)
+
+		// Return peer configuration
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":             true,
+			"serverPublicKey":     wgMgr.GetPublicKey(),
+			"clientIP":            clientIP.String(),
+			"allowedIPs":          "0.0.0.0/0",
+			"dns":                 wgMgr.GetDNS(),
+			"mtu":                 wgMgr.GetMTU(),
+			"persistentKeepalive": 25,
 		})
 	}
 }
