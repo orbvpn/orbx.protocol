@@ -398,7 +398,8 @@ func handleWireGuardConnect(router *protocol.Router) func(http.ResponseWriter, *
 		response := map[string]interface{}{
 			"success":             true,
 			"serverPublicKey":     wgMgr.GetPublicKey(),
-			"clientIP":            clientIP.String(),
+			"ip":                  clientIP.String(),           // ✅ Changed from "clientIP"
+			"gateway":             wgMgr.GetGateway().String(), // ✅ ADDED
 			"serverEndpoint":      fmt.Sprintf("%s:51820", serverHost),
 			"allowedIPs":          "0.0.0.0/0, ::/0",
 			"dns":                 wgMgr.GetDNS(),
