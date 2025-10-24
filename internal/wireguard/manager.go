@@ -243,13 +243,26 @@ func (m *Manager) AddPeer(userUUID, publicKey string) (net.IP, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check if peer already exists
-	if peer, exists := m.peers[userUUID]; exists {
-		log.Printf("Peer %s already exists, returning existing IP: %s", userUUID, peer.AllocatedIP)
-		return peer.AllocatedIP, nil
+	// ✅ CHECK: If peer already exists with DIFFERENT public key, remove it first
+	if existingPeer, exists := m.peers[userUUID]; exists {
+		if existingPeer.PublicKey != publicKey {
+			log.Printf("⚠️ User %s reconnecting with new key, removing old peer", userUUID)
+			// Remove old peer from WireGuard (without lock - we're already locked)
+			cmd := exec.Command("wg", "set", m.config.Interface,
+				"peer", existingPeer.PublicKey, "remove")
+			if err := cmd.Run(); err != nil {
+				log.Printf("Warning: failed to remove old peer: %v", err)
+			}
+			delete(m.peersByKey, existingPeer.PublicKey)
+		} else {
+			// Same key - just return existing IP
+			log.Printf("Peer %s already exists with same key, returning existing IP: %s",
+				userUUID, existingPeer.AllocatedIP)
+			return existingPeer.AllocatedIP, nil
+		}
 	}
 
-	// ✅ Use your IPPool API - it tracks by userID automatically!
+	// Allocate IP (or get existing one)
 	ip, err := m.ipPool.AllocateIP(userUUID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to allocate IP: %w", err)
@@ -257,13 +270,13 @@ func (m *Manager) AddPeer(userUUID, publicKey string) (net.IP, error) {
 
 	allowedIPs := fmt.Sprintf("%s/32", ip.String())
 
-	// Add peer to WireGuard
+	// Add new peer to WireGuard
 	cmd := exec.Command("wg", "set", m.config.Interface,
 		"peer", publicKey,
 		"allowed-ips", allowedIPs)
 
 	if err := cmd.Run(); err != nil {
-		m.ipPool.ReleaseIP(userUUID) // ✅ Use your release API
+		m.ipPool.ReleaseIP(userUUID)
 		return nil, fmt.Errorf("failed to add peer: %w", err)
 	}
 

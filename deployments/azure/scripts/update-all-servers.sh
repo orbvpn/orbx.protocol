@@ -287,12 +287,11 @@ echo "→ Starting updated container with saved configuration..."
 sudo docker run -d \
     --name orbx-server \
     --restart always \
+    --network host \
     --privileged \
     --cap-add NET_ADMIN \
     --cap-add SYS_MODULE \
     --device /dev/net/tun \
-    -p 8443:8443 \
-    -p 51820:51820/udp \
     -v /lib/modules:/lib/modules:ro \
     -v /etc/orbx/certs:/etc/orbx/certs \
     -e ORBNET_ENDPOINT="${ORBNET_ENDPOINT}" \

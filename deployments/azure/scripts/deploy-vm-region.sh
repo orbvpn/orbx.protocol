@@ -450,16 +450,15 @@ ln -sf /etc/orbx/certs/key.pem /etc/orbx/certs/tls.key
 
 # Start OrbX container with full privileges
 echo "Starting OrbX container..."
-docker run -d \\
-  --name orbx-server \\
-  --restart always \\
-  --privileged \\
-  --cap-add NET_ADMIN \\
-  --cap-add SYS_MODULE \\
-  --device /dev/net/tun \\
-  -p 8443:8443 \\
-  -p 51820:51820/udp \\
-  -v /lib/modules:/lib/modules:ro \\
+docker run -d \
+  --name orbx-server \
+  --restart always \
+  --network host \
+  --privileged \
+  --cap-add NET_ADMIN \
+  --cap-add SYS_MODULE \
+  --device /dev/net/tun \
+  -v /lib/modules:/lib/modules:ro \
   -v /etc/orbx/certs:/etc/orbx/certs:ro \\
   -e ORBNET_ENDPOINT="${ORBNET_ENDPOINT}" \\
   -e ORBNET_SERVER_ID="${ORBNET_SERVER_ID}" \\
