@@ -132,6 +132,9 @@ func main() {
 
 		// Client connection endpoint (called by mobile apps with JWT auth)
 		mux.Handle("/wireguard/connect", auth.Middleware(jwtAuth, http.HandlerFunc(handleWireGuardConnect(protocolRouter))))
+
+		// ✅ ADD THIS LINE:
+		mux.Handle("/wireguard/disconnect", auth.Middleware(jwtAuth, http.HandlerFunc(handleWireGuardDisconnect(protocolRouter))))
 	}
 
 	// Fallback handler (HTTPS)
@@ -411,5 +414,48 @@ func handleWireGuardConnect(router *protocol.Router) func(http.ResponseWriter, *
 		if err := json.NewEncoder(w).Encode(response); err != nil {
 			log.Printf("Failed to encode response: %v", err)
 		}
+	}
+}
+
+// handleWireGuardDisconnect handles client disconnection (called by mobile apps)
+func handleWireGuardDisconnect(router *protocol.Router) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Get user from JWT context
+		userClaims, err := auth.GetUserFromContext(r.Context())
+		if err != nil {
+			log.Printf("Failed to get user from context: %v", err)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		userIDString := fmt.Sprintf("%d", userClaims.UserID)
+		log.Printf("🔴 WireGuard disconnect request from user %s (%s)", userIDString, userClaims.Email)
+
+		// Get WireGuard manager
+		wgMgr := router.GetWireGuardHandler()
+		if wgMgr == nil {
+			http.Error(w, "WireGuard not enabled", http.StatusServiceUnavailable)
+			return
+		}
+
+		// Remove peer
+		if err := wgMgr.RemovePeer(userIDString); err != nil {
+			log.Printf("⚠️  Failed to remove peer for user %s: %v", userIDString, err)
+			// Don't error - peer might already be removed
+		} else {
+			log.Printf("✅ Removed WireGuard peer for user %s (%s)", userIDString, userClaims.Email)
+		}
+
+		// Return success
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"message": "Disconnected successfully",
+		})
 	}
 }
