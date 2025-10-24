@@ -317,7 +317,7 @@ az network nsg rule create \
 	--destination-address-prefixes '*' \
 	--destination-port-ranges 8443 \
 	--access Allow \
-	--protocol Udp \
+	--protocol Tcp \
 	>/dev/null
 
 # Allow WireGuard (51820)
@@ -345,7 +345,7 @@ az network nsg rule create \
 	--destination-address-prefixes '*' \
 	--destination-port-ranges 22 \
 	--access Allow \
-	--protocol Udp \
+	--protocol Tcp \
 	>/dev/null
 
 echo -e "${GREEN}[DONE] Network security group created${NC}"
