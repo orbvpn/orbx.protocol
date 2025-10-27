@@ -13,7 +13,7 @@ import (
 	"github.com/orbvpn/orbx.protocol/pkg/models"
 )
 
-// Protocol implements DNS over HTTPS
+// Protocol implements DNS over HTTPS protocol mimicry
 type Protocol struct {
 	crypto *crypto.Manager
 	tunnel *tunnel.Manager
@@ -32,14 +32,12 @@ func (p *Protocol) Name() string {
 	return "doh"
 }
 
-// Validate checks if the request is a valid DoH request
+// Validate checks if the request looks like DoH traffic
 func (p *Protocol) Validate(r *http.Request) bool {
-	// DoH uses GET or POST
 	if r.Method != "GET" && r.Method != "POST" {
 		return false
 	}
 
-	// Check for DoH content type
 	if r.Method == "POST" {
 		ct := r.Header.Get("Content-Type")
 		if ct != "application/dns-message" {
@@ -47,7 +45,6 @@ func (p *Protocol) Validate(r *http.Request) bool {
 		}
 	}
 
-	// GET requests must have dns parameter
 	if r.Method == "GET" && r.URL.Query().Get("dns") == "" {
 		return false
 	}
@@ -55,65 +52,76 @@ func (p *Protocol) Validate(r *http.Request) bool {
 	return true
 }
 
-// Handle processes DoH requests
+// Handle processes DoH protocol requests
 func (p *Protocol) Handle(w http.ResponseWriter, r *http.Request) error {
-	// Get user from context
 	user, err := auth.GetUserFromContext(r.Context())
 	if err != nil {
 		return fmt.Errorf("user not found: %w", err)
 	}
 
-	// Parse DNS query
-	dnsQuery, err := p.parseDNSQuery(r)
+	payload, err := p.parsePayload(r)
 	if err != nil {
-		return fmt.Errorf("failed to parse DNS query: %w", err)
+		return fmt.Errorf("failed to parse payload: %w", err)
 	}
 
-	// Deobfuscate (our VPN data is hidden in DNS query)
-	data, err := p.crypto.DeobfuscatePacket(dnsQuery)
+	wgPacket, err := p.crypto.DeobfuscatePacket(payload)
 	if err != nil {
 		return fmt.Errorf("deobfuscation failed: %w", err)
 	}
 
-	// Create tunnel session
 	session, err := p.tunnel.GetOrCreateSession(user.UserID, string(models.ProtocolDoH))
 	if err != nil {
-		return fmt.Errorf("failed to create session: %w", err)
+		return fmt.Errorf("failed to get session: %w", err)
 	}
 
-	// Route data through tunnel
-	response, err := session.RouteData(data)
+	responsePacket, err := session.RouteData(wgPacket)
 	if err != nil {
 		return fmt.Errorf("routing failed: %w", err)
 	}
 
-	// Obfuscate response
-	obfuscated, err := p.crypto.ObfuscatePacket(response)
-	if err != nil {
-		return fmt.Errorf("obfuscation failed: %w", err)
+	var obfuscated []byte
+	if responsePacket != nil {
+		obfuscated, err = p.crypto.ObfuscatePacket(responsePacket)
+		if err != nil {
+			return fmt.Errorf("obfuscation failed: %w", err)
+		}
+	} else {
+		obfuscated = []byte{}
 	}
 
-	// Send DoH response
-	return p.sendDNSResponse(w, obfuscated)
+	return p.sendResponse(w, obfuscated)
 }
 
-// parseDNSQuery extracts data from DoH request
-func (p *Protocol) parseDNSQuery(r *http.Request) ([]byte, error) {
+func (p *Protocol) parsePayload(r *http.Request) ([]byte, error) {
 	if r.Method == "GET" {
-		// GET: dns parameter is base64url encoded
+		// GET request - DNS query in URL parameter
 		dnsParam := r.URL.Query().Get("dns")
-		return base64.RawURLEncoding.DecodeString(dnsParam)
+		if dnsParam == "" {
+			return nil, fmt.Errorf("missing dns parameter")
+		}
+
+		data, err := base64.RawURLEncoding.DecodeString(dnsParam)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode dns parameter: %w", err)
+		}
+
+		return data, nil
 	}
 
-	// POST: body is the DNS message
-	return io.ReadAll(r.Body)
+	// POST request - DNS message in body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Body.Close()
+
+	return body, nil
 }
 
-// sendDNSResponse sends a DoH response
-func (p *Protocol) sendDNSResponse(w http.ResponseWriter, data []byte) error {
-	// Set DoH headers
+func (p *Protocol) sendResponse(w http.ResponseWriter, data []byte) error {
 	w.Header().Set("Content-Type", "application/dns-message")
 	w.Header().Set("Cache-Control", "max-age=300")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 
 	w.WriteHeader(http.StatusOK)
 	_, err := w.Write(data)

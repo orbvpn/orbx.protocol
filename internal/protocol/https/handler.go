@@ -2,19 +2,18 @@
 package https
 
 import (
-	"bufio"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"time"
 
 	"github.com/orbvpn/orbx.protocol/internal/auth"
 	"github.com/orbvpn/orbx.protocol/internal/crypto"
 	"github.com/orbvpn/orbx.protocol/internal/tunnel"
-	"github.com/orbvpn/orbx.protocol/pkg/models"
 )
 
-// Protocol implements fragmented HTTPS
+// Protocol implements fragmented HTTPS protocol (fallback)
 type Protocol struct {
 	crypto *crypto.Manager
 	tunnel *tunnel.Manager
@@ -33,143 +32,89 @@ func (p *Protocol) Name() string {
 	return "https"
 }
 
-// Validate checks if the request is HTTPS
+// Validate checks if the request looks like HTTPS traffic (always true - fallback)
 func (p *Protocol) Validate(r *http.Request) bool {
-	// Accept all HTTPS requests as fallback
-	return r.TLS != nil
+	return true // Fallback handler accepts everything
 }
 
-// Handle processes fragmented HTTPS requests
+// Handle processes HTTPS protocol requests
 func (p *Protocol) Handle(w http.ResponseWriter, r *http.Request) error {
-	// Get user from context
 	user, err := auth.GetUserFromContext(r.Context())
 	if err != nil {
 		return fmt.Errorf("user not found: %w", err)
 	}
 
-	// Read request body (potentially fragmented)
-	payload, err := p.readFragmentedRequest(r)
+	payload, err := p.parsePayload(r)
 	if err != nil {
-		return fmt.Errorf("failed to read request: %w", err)
+		return fmt.Errorf("failed to parse payload: %w", err)
 	}
 
-	// Deobfuscate data
-	data, err := p.crypto.DeobfuscatePacket(payload)
+	wgPacket, err := p.crypto.DeobfuscatePacket(payload)
 	if err != nil {
 		return fmt.Errorf("deobfuscation failed: %w", err)
 	}
 
-	// Create tunnel session
-	session, err := p.tunnel.GetOrCreateSession(user.UserID, string(models.ProtocolHTTPS))
+	session, err := p.tunnel.GetOrCreateSession(user.UserID, "https")
 	if err != nil {
-		return fmt.Errorf("failed to create session: %w", err)
+		return fmt.Errorf("failed to get session: %w", err)
 	}
 
-	// Route data through tunnel
-	response, err := session.RouteData(data)
+	responsePacket, err := session.RouteData(wgPacket)
 	if err != nil {
 		return fmt.Errorf("routing failed: %w", err)
 	}
 
-	// Obfuscate response
-	obfuscated, err := p.crypto.ObfuscatePacket(response)
+	var obfuscated []byte
+	if responsePacket != nil {
+		obfuscated, err = p.crypto.ObfuscatePacket(responsePacket)
+		if err != nil {
+			return fmt.Errorf("obfuscation failed: %w", err)
+		}
+	} else {
+		obfuscated = []byte{}
+	}
+
+	return p.sendResponse(w, obfuscated)
+}
+
+func (p *Protocol) parsePayload(r *http.Request) ([]byte, error) {
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		return fmt.Errorf("obfuscation failed: %w", err)
+		return nil, err
+	}
+	defer r.Body.Close()
+
+	var msg struct {
+		Data string `json:"data"`
 	}
 
-	// Send fragmented response
-	return p.sendFragmentedResponse(w, obfuscated)
-}
-
-// readFragmentedRequest reads potentially fragmented HTTP request
-func (p *Protocol) readFragmentedRequest(r *http.Request) ([]byte, error) {
-	// Check if request indicates fragmentation
-	if r.Header.Get("X-Fragment-Total") != "" {
-		return p.reassembleFragments(r)
+	if err := json.Unmarshal(body, &msg); err != nil {
+		return nil, fmt.Errorf("invalid https message: %w", err)
 	}
 
-	// Not fragmented, read normally
-	return io.ReadAll(r.Body)
+	data, err := base64.StdEncoding.DecodeString(msg.Data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode data: %w", err)
+	}
+
+	return data, nil
 }
 
-// reassembleFragments reassembles fragmented request
-func (p *Protocol) reassembleFragments(r *http.Request) ([]byte, error) {
-	// In production, implement proper fragment reassembly
-	// For now, just read the body
-	return io.ReadAll(r.Body)
-}
+func (p *Protocol) sendResponse(w http.ResponseWriter, data []byte) error {
+	response := map[string]interface{}{
+		"status": "ok",
+		"data":   base64.StdEncoding.EncodeToString(data),
+	}
 
-// sendFragmentedResponse sends response in fragments
-func (p *Protocol) sendFragmentedResponse(w http.ResponseWriter, data []byte) error {
-	// Check if we should fragment
-	shouldFragment := len(data) > 1024 && p.crypto.Timing != nil
-
-	if !shouldFragment {
-		// Send as single response
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.WriteHeader(http.StatusOK)
-		_, err := w.Write(data)
+	jsonData, err := json.Marshal(response)
+	if err != nil {
 		return err
 	}
 
-	// Fragment the response
-	fragments := p.fragmentData(data)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-cache")
 
-	// Set headers
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("X-Fragment-Total", fmt.Sprintf("%d", len(fragments)))
-	w.Header().Set("Transfer-Encoding", "chunked")
 	w.WriteHeader(http.StatusOK)
-
-	// Get flusher
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		return fmt.Errorf("response writer doesn't support flushing")
-	}
-
-	// Send fragments with timing obfuscation
-	writer := bufio.NewWriter(w)
-	for i, fragment := range fragments {
-		// Write fragment
-		if _, err := writer.Write(fragment); err != nil {
-			return err
-		}
-
-		// Flush
-		if err := writer.Flush(); err != nil {
-			return err
-		}
-		flusher.Flush()
-
-		// Add timing delay between fragments (except last)
-		if i < len(fragments)-1 && p.crypto.Timing != nil {
-			delay := p.crypto.Timing.GetRandomDelay()
-			time.Sleep(delay)
-		}
-	}
-
-	return nil
-}
-
-// fragmentData splits data into fragments
-func (p *Protocol) fragmentData(data []byte) [][]byte {
-	if p.crypto.Timing == nil {
-		return [][]byte{data}
-	}
-
-	// Get fragment sizes
-	sizes := p.crypto.Timing.GetSplitSizes(len(data))
-	fragments := make([][]byte, len(sizes))
-
-	offset := 0
-	for i, size := range sizes {
-		end := offset + size
-		if end > len(data) {
-			end = len(data)
-		}
-		fragments[i] = data[offset:end]
-		offset = end
-	}
-
-	return fragments
+	_, err = w.Write(jsonData)
+	return err
 }

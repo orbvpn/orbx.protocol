@@ -2,6 +2,7 @@
 package wechat
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,14 +13,15 @@ import (
 	"github.com/orbvpn/orbx.protocol/internal/auth"
 	"github.com/orbvpn/orbx.protocol/internal/crypto"
 	"github.com/orbvpn/orbx.protocol/internal/tunnel"
-	"github.com/orbvpn/orbx.protocol/pkg/models"
 )
 
+// Protocol implements WeChat protocol mimicry
 type Protocol struct {
 	crypto *crypto.Manager
 	tunnel *tunnel.Manager
 }
 
+// NewProtocol creates a new WeChat protocol handler
 func NewProtocol(cryptoMgr *crypto.Manager, tunnelMgr *tunnel.Manager) *Protocol {
 	return &Protocol{
 		crypto: cryptoMgr,
@@ -27,87 +29,90 @@ func NewProtocol(cryptoMgr *crypto.Manager, tunnelMgr *tunnel.Manager) *Protocol
 	}
 }
 
+// Name returns the protocol name
 func (p *Protocol) Name() string {
 	return "wechat"
 }
 
+// Validate checks if the request looks like WeChat traffic
 func (p *Protocol) Validate(r *http.Request) bool {
 	ua := r.Header.Get("User-Agent")
-
-	// WeChat user agents
-	if !strings.Contains(ua, "MicroMessenger") && !strings.Contains(ua, "WeChat") {
-		return false
-	}
-
-	// WeChat-specific headers
-	if r.Header.Get("X-WECHAT-UIN") == "" && r.Header.Get("X-WECHAT-KEY") == "" {
-		return false
-	}
-
-	return true
+	return strings.Contains(ua, "MicroMessenger") ||
+		strings.Contains(ua, "WeChat") ||
+		strings.Contains(ua, "wechat")
 }
 
+// Handle processes WeChat protocol requests
 func (p *Protocol) Handle(w http.ResponseWriter, r *http.Request) error {
 	user, err := auth.GetUserFromContext(r.Context())
 	if err != nil {
 		return fmt.Errorf("user not found: %w", err)
 	}
 
-	payload, err := p.parseWeChatPayload(r)
+	payload, err := p.parsePayload(r)
 	if err != nil {
 		return fmt.Errorf("failed to parse payload: %w", err)
 	}
 
-	data, err := p.crypto.DeobfuscatePacket(payload)
+	wgPacket, err := p.crypto.DeobfuscatePacket(payload)
 	if err != nil {
 		return fmt.Errorf("deobfuscation failed: %w", err)
 	}
 
-	session, err := p.tunnel.GetOrCreateSession(user.UserID, string(models.ProtocolWeChat))
+	session, err := p.tunnel.GetOrCreateSession(user.UserID, "wechat")
 	if err != nil {
-		return fmt.Errorf("failed to create session: %w", err)
+		return fmt.Errorf("failed to get session: %w", err)
 	}
 
-	response, err := session.RouteData(data)
+	responsePacket, err := session.RouteData(wgPacket)
 	if err != nil {
 		return fmt.Errorf("routing failed: %w", err)
 	}
 
-	obfuscated, err := p.crypto.ObfuscatePacket(response)
-	if err != nil {
-		return fmt.Errorf("obfuscation failed: %w", err)
+	var obfuscated []byte
+	if responsePacket != nil {
+		obfuscated, err = p.crypto.ObfuscatePacket(responsePacket)
+		if err != nil {
+			return fmt.Errorf("obfuscation failed: %w", err)
+		}
+	} else {
+		obfuscated = []byte{}
 	}
 
-	return p.sendWeChatResponse(w, obfuscated)
+	return p.sendResponse(w, obfuscated)
 }
 
-func (p *Protocol) parseWeChatPayload(r *http.Request) ([]byte, error) {
+func (p *Protocol) parsePayload(r *http.Request) ([]byte, error) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		return nil, err
 	}
 	defer r.Body.Close()
 
-	var wcMsg struct {
-		MsgType int    `json:"msgType"` // WeChat message types
-		Content string `json:"content"` // Base64 encoded
-		ToUser  string `json:"toUser"`
-		Scene   int    `json:"scene"`
+	var msg struct {
+		MsgType  string `json:"msgType"`
+		Content  string `json:"content"`
+		FromUser string `json:"fromUser"`
 	}
 
-	if err := json.Unmarshal(body, &wcMsg); err != nil {
+	if err := json.Unmarshal(body, &msg); err != nil {
 		return nil, fmt.Errorf("invalid wechat message: %w", err)
 	}
 
-	return []byte(wcMsg.Content), nil
+	data, err := base64.StdEncoding.DecodeString(msg.Content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode content: %w", err)
+	}
+
+	return data, nil
 }
 
-func (p *Protocol) sendWeChatResponse(w http.ResponseWriter, data []byte) error {
+func (p *Protocol) sendResponse(w http.ResponseWriter, data []byte) error {
 	response := map[string]interface{}{
-		"ret":     0,
-		"msg":     "success",
-		"content": string(data),
-		"time":    time.Now().Unix(),
+		"errcode": 0,
+		"errmsg":  "ok",
+		"content": base64.StdEncoding.EncodeToString(data),
+		"time":    time.Now().UnixMilli(),
 	}
 
 	jsonData, err := json.Marshal(response)
@@ -115,10 +120,9 @@ func (p *Protocol) sendWeChatResponse(w http.ResponseWriter, data []byte) error 
 		return err
 	}
 
-	// WeChat-specific headers
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-WECHAT-Server", "sz-gateway-01")
-	w.Header().Set("X-WECHAT-Version", "8.0.38")
+	w.Header().Set("X-WeChat-Server-Time", fmt.Sprintf("%d", time.Now().UnixMilli()))
+	w.Header().Set("Cache-Control", "no-cache")
 
 	w.WriteHeader(http.StatusOK)
 	_, err = w.Write(jsonData)

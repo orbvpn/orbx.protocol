@@ -2,6 +2,7 @@
 package teams
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,7 +16,7 @@ import (
 	"github.com/orbvpn/orbx.protocol/pkg/models"
 )
 
-// Protocol implements Microsoft Teams protocol mimicry
+// Protocol implements Microsoft Teams protocol mimicry with WireGuard tunneling
 type Protocol struct {
 	crypto *crypto.Manager
 	tunnel *tunnel.Manager
@@ -50,81 +51,92 @@ func (p *Protocol) Validate(r *http.Request) bool {
 	return true
 }
 
-// Handle processes Teams protocol requests
+// Handle processes Teams protocol requests and tunnels WireGuard packets
 func (p *Protocol) Handle(w http.ResponseWriter, r *http.Request) error {
 	// Get user from context
 	user, err := auth.GetUserFromContext(r.Context())
 	if err != nil {
-		return fmt.Errorf("user not found: %w", err) // ✓ lowercase
+		return fmt.Errorf("user not found: %w", err)
 	}
 
-	// Parse Teams-like request
-	payload, err := p.parseTeamsPayload(r)
+	// Parse Teams-like request containing WireGuard packet
+	payload, err := p.parsePayload(r)
 	if err != nil {
-		return fmt.Errorf("failed to parse payload: %w", err) // ✓ lowercase
+		return fmt.Errorf("failed to parse payload: %w", err)
 	}
 
-	// Deobfuscate data
-	data, err := p.crypto.DeobfuscatePacket(payload)
+	// Decrypt/deobfuscate the WireGuard packet
+	wgPacket, err := p.crypto.DeobfuscatePacket(payload)
 	if err != nil {
-		return fmt.Errorf("deobfuscation failed: %w", err) // ✓ lowercase
+		return fmt.Errorf("deobfuscation failed: %w", err)
 	}
 
-	// Create tunnel session if needed
+	// Forward packet to WireGuard interface via tunnel manager
 	session, err := p.tunnel.GetOrCreateSession(user.UserID, string(models.ProtocolTeams))
 	if err != nil {
-		return fmt.Errorf("failed to create session: %w", err) // ✓ lowercase
+		return fmt.Errorf("failed to get session: %w", err)
 	}
 
-	// Route data through tunnel
-	response, err := session.RouteData(data)
+	responsePacket, err := session.RouteData(wgPacket)
 	if err != nil {
-		return fmt.Errorf("routing failed: %w", err) // ✓ lowercase
+		return fmt.Errorf("routing failed: %w", err)
 	}
 
-	// Obfuscate response
-	obfuscated, err := p.crypto.ObfuscatePacket(response)
-	if err != nil {
-		return fmt.Errorf("obfuscation failed: %w", err) // ✓ lowercase
+	// Obfuscate response packet
+	var obfuscated []byte
+	if responsePacket != nil {
+		obfuscated, err = p.crypto.ObfuscatePacket(responsePacket)
+		if err != nil {
+			return fmt.Errorf("obfuscation failed: %w", err)
+		}
+	} else {
+		obfuscated = []byte{} // Empty response for handshake packets
 	}
 
 	// Send Teams-like response
-	return p.sendTeamsResponse(w, obfuscated)
+	return p.sendResponse(w, obfuscated)
 }
 
-// parseTeamsPayload extracts data from Teams-like request
-func (p *Protocol) parseTeamsPayload(r *http.Request) ([]byte, error) {
+// parsePayload extracts WireGuard packet from Teams-like request
+func (p *Protocol) parsePayload(r *http.Request) ([]byte, error) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		return nil, err
 	}
 	defer r.Body.Close()
 
-	// Teams uses JSON payloads
+	// Teams-like JSON structure
 	var teamsMsg struct {
 		Type      string `json:"type"`
-		Content   string `json:"content"` // Base64 encoded data
+		Content   string `json:"content"` // Base64 encoded WireGuard packet
 		Timestamp int64  `json:"timestamp"`
 		ClientID  string `json:"clientId"`
+		Sequence  int    `json:"sequence"`
 	}
 
 	if err := json.Unmarshal(body, &teamsMsg); err != nil {
-		return nil, fmt.Errorf("invalid teams message: %w", err) // ✓ lowercase (Teams is proper noun but in middle)
+		return nil, fmt.Errorf("invalid teams message: %w", err)
 	}
 
-	// Decode base64 content
-	return []byte(teamsMsg.Content), nil
+	// Decode base64 content (contains encrypted WireGuard packet)
+	data, err := base64.StdEncoding.DecodeString(teamsMsg.Content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode content: %w", err)
+	}
+
+	return data, nil
 }
 
-// sendTeamsResponse sends a Teams-like response
-func (p *Protocol) sendTeamsResponse(w http.ResponseWriter, data []byte) error {
+// sendResponse sends a Teams-like response with WireGuard packet
+func (p *Protocol) sendResponse(w http.ResponseWriter, data []byte) error {
 	// Create Teams-like response
 	response := map[string]interface{}{
 		"type":      "message",
-		"content":   string(data), // Base64 encode in production
-		"timestamp": time.Now().Unix(),
+		"content":   base64.StdEncoding.EncodeToString(data),
+		"timestamp": time.Now().UnixMilli(),
 		"serverId":  "teams-gateway-01",
 		"status":    "delivered",
+		"messageId": generateMessageID(),
 	}
 
 	jsonData, err := json.Marshal(response)
@@ -132,20 +144,31 @@ func (p *Protocol) sendTeamsResponse(w http.ResponseWriter, data []byte) error {
 		return err
 	}
 
-	// Set Teams-like headers
-	w.Header().Set("Content-Type", "application/json")
+	// Set authentic Teams headers
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("X-Ms-Server-Version", "27/1.0.0.2024")
 	w.Header().Set("X-Ms-Correlation-Id", generateCorrelationID())
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Ms-Request-Id", generateRequestID())
+	w.Header().Set("Cache-Control", "no-store, no-cache")
+	w.Header().Set("Pragma", "no-cache")
 
 	w.WriteHeader(http.StatusOK)
 	_, err = w.Write(jsonData)
 	return err
 }
 
-// generateCorrelationID generates a Teams-like correlation ID
+// Helper functions for authentic Teams headers
+func generateMessageID() string {
+	return fmt.Sprintf("msg_%d_%s", time.Now().UnixNano(), randString(16))
+}
+
 func generateCorrelationID() string {
 	return fmt.Sprintf("%d-%s", time.Now().UnixNano(), randString(16))
+}
+
+func generateRequestID() string {
+	return fmt.Sprintf("req_%d_%s", time.Now().UnixNano(), randString(12))
 }
 
 func randString(n int) string {
