@@ -1,8 +1,6 @@
-// internal/protocol/facetime/handler.go
 package facetime
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,15 +11,14 @@ import (
 	"github.com/orbvpn/orbx.protocol/internal/auth"
 	"github.com/orbvpn/orbx.protocol/internal/crypto"
 	"github.com/orbvpn/orbx.protocol/internal/tunnel"
+	"github.com/orbvpn/orbx.protocol/pkg/models"
 )
 
-// Protocol implements FaceTime protocol mimicry
 type Protocol struct {
 	crypto *crypto.Manager
 	tunnel *tunnel.Manager
 }
 
-// NewProtocol creates a new FaceTime protocol handler
 func NewProtocol(cryptoMgr *crypto.Manager, tunnelMgr *tunnel.Manager) *Protocol {
 	return &Protocol{
 		crypto: cryptoMgr,
@@ -29,99 +26,123 @@ func NewProtocol(cryptoMgr *crypto.Manager, tunnelMgr *tunnel.Manager) *Protocol
 	}
 }
 
-// Name returns the protocol name
 func (p *Protocol) Name() string {
 	return "facetime"
 }
 
-// Validate checks if the request looks like FaceTime traffic
+// Validate checks if the request should be handled by FaceTime protocol
 func (p *Protocol) Validate(r *http.Request) bool {
+	// 🔓 PERMISSIVE MODE: Accept any request with valid Bearer token
+	authHeader := r.Header.Get("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") && len(authHeader) > 10 {
+		return true
+	}
+
+	// 🔒 STRICT MODE: Validate FaceTime-specific characteristics
 	ua := r.Header.Get("User-Agent")
-	return strings.Contains(ua, "FaceTime") || strings.Contains(ua, "CFNetwork")
+
+	// Check for FaceTime/Apple user agents
+	if strings.Contains(ua, "FaceTime") ||
+		strings.Contains(ua, "AppleWebKit") ||
+		strings.Contains(ua, "CFNetwork") {
+
+		// Also check for Apple-specific headers
+		if r.Header.Get("X-Apple-Device-Id") != "" ||
+			r.Header.Get("X-Apple-Request-UUID") != "" {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Handle processes FaceTime protocol requests
 func (p *Protocol) Handle(w http.ResponseWriter, r *http.Request) error {
+	// Get authenticated user
 	user, err := auth.GetUserFromContext(r.Context())
 	if err != nil {
 		return fmt.Errorf("user not found: %w", err)
 	}
 
-	payload, err := p.parsePayload(r)
+	// Parse FaceTime payload
+	payload, err := p.parseFaceTimePayload(r)
 	if err != nil {
 		return fmt.Errorf("failed to parse payload: %w", err)
 	}
 
-	wgPacket, err := p.crypto.DeobfuscatePacket(payload)
+	// Deobfuscate packet data
+	data, err := p.crypto.DeobfuscatePacket(payload)
 	if err != nil {
 		return fmt.Errorf("deobfuscation failed: %w", err)
 	}
 
-	session, err := p.tunnel.GetOrCreateSession(user.UserID, "facetime")
+	// Get or create tunnel session
+	session, err := p.tunnel.GetOrCreateSession(user.UserID, string(models.ProtocolFaceTime))
 	if err != nil {
-		return fmt.Errorf("failed to get session: %w", err)
+		return fmt.Errorf("failed to create session: %w", err)
 	}
 
-	responsePacket, err := session.RouteData(wgPacket)
+	// Route through VPN tunnel
+	response, err := session.RouteData(data)
 	if err != nil {
 		return fmt.Errorf("routing failed: %w", err)
 	}
 
-	var obfuscated []byte
-	if responsePacket != nil {
-		obfuscated, err = p.crypto.ObfuscatePacket(responsePacket)
-		if err != nil {
-			return fmt.Errorf("obfuscation failed: %w", err)
-		}
-	} else {
-		obfuscated = []byte{}
+	// Obfuscate response
+	obfuscated, err := p.crypto.ObfuscatePacket(response)
+	if err != nil {
+		return fmt.Errorf("obfuscation failed: %w", err)
 	}
 
-	return p.sendResponse(w, obfuscated)
+	// Send FaceTime-like response
+	return p.sendFaceTimeResponse(w, obfuscated)
 }
 
-func (p *Protocol) parsePayload(r *http.Request) ([]byte, error) {
+// FaceTimeMessage represents a FaceTime message payload
+type FaceTimeMessage struct {
+	Type      string `json:"type"`
+	CallID    string `json:"call_id,omitempty"`
+	Data      string `json:"data"` // Base64-encoded packet data
+	Timestamp int64  `json:"timestamp"`
+	DeviceID  string `json:"device_id,omitempty"`
+}
+
+// parseFaceTimePayload extracts packet data from FaceTime-formatted request
+func (p *Protocol) parseFaceTimePayload(r *http.Request) ([]byte, error) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read body failed: %w", err)
 	}
 	defer r.Body.Close()
 
-	var msg struct {
-		Type    string `json:"type"`
-		Payload string `json:"payload"`
-		CallID  string `json:"callId"`
+	// Try to parse as JSON
+	var ftMsg FaceTimeMessage
+	if err := json.Unmarshal(body, &ftMsg); err != nil {
+		// Not JSON, treat as raw data
+		return body, nil
 	}
 
-	if err := json.Unmarshal(body, &msg); err != nil {
-		return nil, fmt.Errorf("invalid facetime message: %w", err)
+	// Extract base64-encoded data
+	if ftMsg.Data == "" {
+		return nil, fmt.Errorf("empty data in FaceTime message")
 	}
 
-	data, err := base64.StdEncoding.DecodeString(msg.Payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode payload: %w", err)
-	}
-
-	return data, nil
+	return []byte(ftMsg.Data), nil
 }
 
-func (p *Protocol) sendResponse(w http.ResponseWriter, data []byte) error {
-	response := map[string]interface{}{
-		"status":  "ok",
-		"payload": base64.StdEncoding.EncodeToString(data),
-		"time":    time.Now().Unix(),
+// sendFaceTimeResponse sends a FaceTime-formatted response
+func (p *Protocol) sendFaceTimeResponse(w http.ResponseWriter, data []byte) error {
+	response := FaceTimeMessage{
+		Type:      "response",
+		Data:      string(data), // Already base64-encoded
+		Timestamp: time.Now().Unix(),
 	}
 
-	jsonData, err := json.Marshal(response)
-	if err != nil {
-		return err
-	}
-
+	// Set Apple/FaceTime-like headers
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Apple-Request-UUID", fmt.Sprintf("%d", time.Now().UnixNano()))
-	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Apple-Service", "facetime")
+	w.Header().Set("Server", "Apple")
 
 	w.WriteHeader(http.StatusOK)
-	_, err = w.Write(jsonData)
-	return err
+	return json.NewEncoder(w).Encode(response)
 }

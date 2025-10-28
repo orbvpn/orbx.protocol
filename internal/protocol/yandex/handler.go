@@ -1,8 +1,6 @@
-// internal/protocol/yandex/handler.go
 package yandex
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,15 +11,14 @@ import (
 	"github.com/orbvpn/orbx.protocol/internal/auth"
 	"github.com/orbvpn/orbx.protocol/internal/crypto"
 	"github.com/orbvpn/orbx.protocol/internal/tunnel"
+	"github.com/orbvpn/orbx.protocol/pkg/models"
 )
 
-// Protocol implements Yandex protocol mimicry
 type Protocol struct {
 	crypto *crypto.Manager
 	tunnel *tunnel.Manager
 }
 
-// NewProtocol creates a new Yandex protocol handler
 func NewProtocol(cryptoMgr *crypto.Manager, tunnelMgr *tunnel.Manager) *Protocol {
 	return &Protocol{
 		crypto: cryptoMgr,
@@ -29,101 +26,125 @@ func NewProtocol(cryptoMgr *crypto.Manager, tunnelMgr *tunnel.Manager) *Protocol
 	}
 }
 
-// Name returns the protocol name
 func (p *Protocol) Name() string {
 	return "yandex"
 }
 
-// Validate checks if the request looks like Yandex traffic
+// Validate checks if the request should be handled by Yandex protocol
 func (p *Protocol) Validate(r *http.Request) bool {
+	// 🔓 PERMISSIVE MODE: Accept any request with valid Bearer token
+	authHeader := r.Header.Get("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") && len(authHeader) > 10 {
+		return true
+	}
+
+	// 🔒 STRICT MODE: Validate Yandex-specific characteristics
 	ua := r.Header.Get("User-Agent")
-	return strings.Contains(ua, "YaBrowser") ||
+
+	// Check for Yandex user agents
+	if strings.Contains(ua, "YaBrowser") ||
 		strings.Contains(ua, "Yandex") ||
-		strings.Contains(ua, "yandex")
+		strings.Contains(ua, "YandexSearch") ||
+		strings.Contains(ua, "YandexBot") {
+		return true
+	}
+
+	// Check for Yandex-specific headers
+	if r.Header.Get("X-Yandex-Client-Id") != "" ||
+		r.Header.Get("X-Yandex-Request-Id") != "" {
+		return true
+	}
+
+	return false
 }
 
 // Handle processes Yandex protocol requests
 func (p *Protocol) Handle(w http.ResponseWriter, r *http.Request) error {
+	// Get authenticated user
 	user, err := auth.GetUserFromContext(r.Context())
 	if err != nil {
 		return fmt.Errorf("user not found: %w", err)
 	}
 
-	payload, err := p.parsePayload(r)
+	// Parse Yandex payload
+	payload, err := p.parseYandexPayload(r)
 	if err != nil {
 		return fmt.Errorf("failed to parse payload: %w", err)
 	}
 
-	wgPacket, err := p.crypto.DeobfuscatePacket(payload)
+	// Deobfuscate packet data
+	data, err := p.crypto.DeobfuscatePacket(payload)
 	if err != nil {
 		return fmt.Errorf("deobfuscation failed: %w", err)
 	}
 
-	session, err := p.tunnel.GetOrCreateSession(user.UserID, "yandex")
+	// Get or create tunnel session
+	session, err := p.tunnel.GetOrCreateSession(user.UserID, string(models.ProtocolYandex))
 	if err != nil {
-		return fmt.Errorf("failed to get session: %w", err)
+		return fmt.Errorf("failed to create session: %w", err)
 	}
 
-	responsePacket, err := session.RouteData(wgPacket)
+	// Route through VPN tunnel
+	response, err := session.RouteData(data)
 	if err != nil {
 		return fmt.Errorf("routing failed: %w", err)
 	}
 
-	var obfuscated []byte
-	if responsePacket != nil {
-		obfuscated, err = p.crypto.ObfuscatePacket(responsePacket)
-		if err != nil {
-			return fmt.Errorf("obfuscation failed: %w", err)
-		}
-	} else {
-		obfuscated = []byte{}
+	// Obfuscate response
+	obfuscated, err := p.crypto.ObfuscatePacket(response)
+	if err != nil {
+		return fmt.Errorf("obfuscation failed: %w", err)
 	}
 
-	return p.sendResponse(w, obfuscated)
+	// Send Yandex-like response
+	return p.sendYandexResponse(w, obfuscated)
 }
 
-func (p *Protocol) parsePayload(r *http.Request) ([]byte, error) {
+// YandexMessage represents a Yandex service message payload
+type YandexMessage struct {
+	Query     string                 `json:"query,omitempty"`
+	Service   string                 `json:"service,omitempty"` // "search", "mail", "disk", etc.
+	Data      string                 `json:"data"`              // Base64-encoded packet data
+	Params    map[string]interface{} `json:"params,omitempty"`
+	Timestamp int64                  `json:"timestamp"`
+}
+
+// parseYandexPayload extracts packet data from Yandex-formatted request
+func (p *Protocol) parseYandexPayload(r *http.Request) ([]byte, error) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read body failed: %w", err)
 	}
 	defer r.Body.Close()
 
-	var msg struct {
-		Action string `json:"action"`
-		Data   string `json:"data"`
-		Token  string `json:"token"`
+	// Try to parse as JSON
+	var yandexMsg YandexMessage
+	if err := json.Unmarshal(body, &yandexMsg); err != nil {
+		// Not JSON, treat as raw data
+		return body, nil
 	}
 
-	if err := json.Unmarshal(body, &msg); err != nil {
-		return nil, fmt.Errorf("invalid yandex message: %w", err)
+	// Extract base64-encoded data
+	if yandexMsg.Data == "" {
+		return nil, fmt.Errorf("empty data in Yandex message")
 	}
 
-	data, err := base64.StdEncoding.DecodeString(msg.Data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode data: %w", err)
-	}
-
-	return data, nil
+	return []byte(yandexMsg.Data), nil
 }
 
-func (p *Protocol) sendResponse(w http.ResponseWriter, data []byte) error {
-	response := map[string]interface{}{
-		"status": "ok",
-		"data":   base64.StdEncoding.EncodeToString(data),
-		"time":   time.Now().Unix(),
+// sendYandexResponse sends a Yandex-formatted response
+func (p *Protocol) sendYandexResponse(w http.ResponseWriter, data []byte) error {
+	response := YandexMessage{
+		Service:   "response",
+		Data:      string(data), // Already base64-encoded
+		Timestamp: time.Now().Unix(),
 	}
 
-	jsonData, err := json.Marshal(response)
-	if err != nil {
-		return err
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Yandex-Server-Time", fmt.Sprintf("%d", time.Now().Unix()))
-	w.Header().Set("Cache-Control", "no-cache")
+	// Set Yandex-like headers
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("X-Yandex-Response-Time", fmt.Sprintf("%d", time.Now().UnixMilli()))
+	w.Header().Set("Server", "Yandex")
 
 	w.WriteHeader(http.StatusOK)
-	_, err = w.Write(jsonData)
-	return err
+	return json.NewEncoder(w).Encode(response)
 }

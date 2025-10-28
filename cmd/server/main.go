@@ -124,16 +124,25 @@ func main() {
 	// Chinese services
 	mux.Handle("/wechat/", auth.Middleware(jwtAuth, protocolRouter.HandleWeChat()))
 
-	// WireGuard management endpoints (called by OrbNet)
+	// VPN Tunnel endpoints (supports multiple VPN types with protocol mimicry)
 	if cfg.WireGuard.Enabled {
+		// ✅ FUTURE-PROOF: Generic tunnel manager that can handle any VPN type
+		httpTunnelMgr := tunnel.NewHTTPTunnelManager("127.0.0.1:51820") // WireGuard endpoint
+		log.Println("✅ HTTP Tunnel Manager initialized")
+
+		// ✅ FUTURE-PROOF: Generic tunnel endpoint
+		mux.Handle("/vpn/tunnel", auth.Middleware(jwtAuth,
+			http.HandlerFunc(handleVPNTunnel(httpTunnelMgr))))
+
+		// ✅ BACKWARD COMPATIBLE: Keep old endpoint for existing clients
+		mux.Handle("/wireguard/tunnel", auth.Middleware(jwtAuth,
+			http.HandlerFunc(handleWireGuardTunnel(httpTunnelMgr))))
+
+		// Existing WireGuard management endpoints
 		mux.HandleFunc("/wireguard/add-peer", handleWireGuardAddPeer(protocolRouter))
 		mux.HandleFunc("/wireguard/remove-peer", handleWireGuardRemovePeer(protocolRouter))
 		mux.HandleFunc("/wireguard/status", handleWireGuardServerStatus(protocolRouter))
-
-		// Client connection endpoint (called by mobile apps with JWT auth)
 		mux.Handle("/wireguard/connect", auth.Middleware(jwtAuth, http.HandlerFunc(handleWireGuardConnect(protocolRouter))))
-
-		// ✅ ADD THIS LINE:
 		mux.Handle("/wireguard/disconnect", auth.Middleware(jwtAuth, http.HandlerFunc(handleWireGuardDisconnect(protocolRouter))))
 	}
 
@@ -457,5 +466,79 @@ func handleWireGuardDisconnect(router *protocol.Router) func(http.ResponseWriter
 			"success": true,
 			"message": "Disconnected successfully",
 		})
+	}
+}
+
+// handleVPNTunnel establishes HTTP tunnel for any VPN protocol with mimicry
+func handleVPNTunnel(tunnelMgr *tunnel.HTTPTunnelManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Get user from JWT
+		userClaims, err := auth.GetUserFromContext(r.Context())
+		if err != nil {
+			log.Printf("❌ Failed to get user from context: %v", err)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Get VPN type (wireguard, vless, cisco, etc.)
+		vpnType := r.URL.Query().Get("type")
+		if vpnType == "" {
+			vpnType = r.Header.Get("X-VPN-Type")
+		}
+		if vpnType == "" {
+			vpnType = "wireguard" // default
+		}
+
+		// Get mimicry protocol (shaparak, teams, https, etc.)
+		protocol := r.URL.Query().Get("protocol")
+		if protocol == "" {
+			protocol = r.Header.Get("X-Protocol")
+		}
+		if protocol == "" {
+			protocol = "https" // default
+		}
+
+		log.Printf("🎭 User %d (%s) requesting %s tunnel with %s mimicry",
+			userClaims.UserID, userClaims.Email, vpnType, protocol)
+
+		// Validate VPN type
+		switch vpnType {
+		case "wireguard":
+			// Current implementation
+		case "vless":
+			// TODO: Implement VLESS support
+			http.Error(w, "VLESS not yet implemented", http.StatusNotImplemented)
+			return
+		case "cisco":
+			// TODO: Implement Cisco AnyConnect support
+			http.Error(w, "Cisco not yet implemented", http.StatusNotImplemented)
+			return
+		default:
+			http.Error(w, fmt.Sprintf("Unknown VPN type: %s", vpnType), http.StatusBadRequest)
+			return
+		}
+
+		// Establish tunnel (this hijacks the connection)
+		if err := tunnelMgr.EstablishTunnel(w, r, userClaims.UserID, protocol); err != nil {
+			log.Printf("❌ Failed to establish tunnel: %v", err)
+			http.Error(w, "Failed to establish tunnel", http.StatusInternalServerError)
+			return
+		}
+
+		log.Printf("✅ %s tunnel established for user %d with %s mimicry",
+			vpnType, userClaims.UserID, protocol)
+	}
+}
+
+// handleWireGuardTunnel is backward compatible wrapper for old clients
+func handleWireGuardTunnel(tunnelMgr *tunnel.HTTPTunnelManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Just call the generic handler with type=wireguard
+		handleVPNTunnel(tunnelMgr)(w, r)
 	}
 }

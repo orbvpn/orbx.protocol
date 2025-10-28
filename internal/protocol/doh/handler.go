@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/orbvpn/orbx.protocol/internal/auth"
 	"github.com/orbvpn/orbx.protocol/internal/crypto"
@@ -13,13 +14,12 @@ import (
 	"github.com/orbvpn/orbx.protocol/pkg/models"
 )
 
-// Protocol implements DNS over HTTPS protocol mimicry
+// Protocol implements DNS over HTTPS
 type Protocol struct {
 	crypto *crypto.Manager
 	tunnel *tunnel.Manager
 }
 
-// NewProtocol creates a new DoH protocol handler
 func NewProtocol(cryptoMgr *crypto.Manager, tunnelMgr *tunnel.Manager) *Protocol {
 	return &Protocol{
 		crypto: cryptoMgr,
@@ -27,101 +27,114 @@ func NewProtocol(cryptoMgr *crypto.Manager, tunnelMgr *tunnel.Manager) *Protocol
 	}
 }
 
-// Name returns the protocol name
 func (p *Protocol) Name() string {
 	return "doh"
 }
 
-// Validate checks if the request looks like DoH traffic
+// Validate checks if the request should be handled by DoH protocol
 func (p *Protocol) Validate(r *http.Request) bool {
-	if r.Method != "GET" && r.Method != "POST" {
-		return false
+	// 🔓 PERMISSIVE MODE: Accept any request with valid Bearer token
+	authHeader := r.Header.Get("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") && len(authHeader) > 10 {
+		return true
 	}
 
-	if r.Method == "POST" {
-		ct := r.Header.Get("Content-Type")
-		if ct != "application/dns-message" {
-			return false
-		}
+	// 🔒 STRICT MODE: Validate DoH-specific characteristics
+	ct := r.Header.Get("Content-Type")
+
+	// DoH uses application/dns-message
+	if ct == "application/dns-message" ||
+		ct == "application/dns-json" {
+		return true
 	}
 
-	if r.Method == "GET" && r.URL.Query().Get("dns") == "" {
-		return false
+	// Check for dns query parameter (GET requests)
+	if r.Method == "GET" && r.URL.Query().Get("dns") != "" {
+		return true
 	}
 
-	return true
+	return false
 }
 
 // Handle processes DoH protocol requests
 func (p *Protocol) Handle(w http.ResponseWriter, r *http.Request) error {
+	// Get authenticated user
 	user, err := auth.GetUserFromContext(r.Context())
 	if err != nil {
 		return fmt.Errorf("user not found: %w", err)
 	}
 
-	payload, err := p.parsePayload(r)
+	// Parse DoH payload
+	payload, err := p.parseDohPayload(r)
 	if err != nil {
 		return fmt.Errorf("failed to parse payload: %w", err)
 	}
 
-	wgPacket, err := p.crypto.DeobfuscatePacket(payload)
+	// Deobfuscate packet data
+	data, err := p.crypto.DeobfuscatePacket(payload)
 	if err != nil {
 		return fmt.Errorf("deobfuscation failed: %w", err)
 	}
 
+	// Get or create tunnel session
 	session, err := p.tunnel.GetOrCreateSession(user.UserID, string(models.ProtocolDoH))
 	if err != nil {
-		return fmt.Errorf("failed to get session: %w", err)
+		return fmt.Errorf("failed to create session: %w", err)
 	}
 
-	responsePacket, err := session.RouteData(wgPacket)
+	// Route through VPN tunnel
+	response, err := session.RouteData(data)
 	if err != nil {
 		return fmt.Errorf("routing failed: %w", err)
 	}
 
-	var obfuscated []byte
-	if responsePacket != nil {
-		obfuscated, err = p.crypto.ObfuscatePacket(responsePacket)
-		if err != nil {
-			return fmt.Errorf("obfuscation failed: %w", err)
-		}
-	} else {
-		obfuscated = []byte{}
+	// Obfuscate response
+	obfuscated, err := p.crypto.ObfuscatePacket(response)
+	if err != nil {
+		return fmt.Errorf("obfuscation failed: %w", err)
 	}
 
-	return p.sendResponse(w, obfuscated)
+	// Send DoH-like response
+	return p.sendDohResponse(w, obfuscated)
 }
 
-func (p *Protocol) parsePayload(r *http.Request) ([]byte, error) {
+// parseDohPayload extracts packet data from DoH request
+func (p *Protocol) parseDohPayload(r *http.Request) ([]byte, error) {
+	// GET request with dns query parameter
 	if r.Method == "GET" {
-		// GET request - DNS query in URL parameter
 		dnsParam := r.URL.Query().Get("dns")
 		if dnsParam == "" {
-			return nil, fmt.Errorf("missing dns parameter")
+			return nil, fmt.Errorf("missing dns query parameter")
 		}
 
-		data, err := base64.RawURLEncoding.DecodeString(dnsParam)
+		// Decode base64url-encoded DNS message
+		decoded, err := base64.RawURLEncoding.DecodeString(dnsParam)
 		if err != nil {
-			return nil, fmt.Errorf("failed to decode dns parameter: %w", err)
+			return nil, fmt.Errorf("invalid base64url encoding: %w", err)
 		}
 
-		return data, nil
+		return decoded, nil
 	}
 
-	// POST request - DNS message in body
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		return nil, err
-	}
-	defer r.Body.Close()
+	// POST request with binary DNS message in body
+	if r.Method == "POST" {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			return nil, fmt.Errorf("read body failed: %w", err)
+		}
+		defer r.Body.Close()
 
-	return body, nil
+		return body, nil
+	}
+
+	return nil, fmt.Errorf("unsupported method: %s", r.Method)
 }
 
-func (p *Protocol) sendResponse(w http.ResponseWriter, data []byte) error {
+// sendDohResponse sends a DoH-formatted response
+func (p *Protocol) sendDohResponse(w http.ResponseWriter, data []byte) error {
+	// Set DoH-specific headers
 	w.Header().Set("Content-Type", "application/dns-message")
-	w.Header().Set("Cache-Control", "max-age=300")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "max-age=0")
 
 	w.WriteHeader(http.StatusOK)
 	_, err := w.Write(data)
