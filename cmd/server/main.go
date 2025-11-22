@@ -132,11 +132,11 @@ func main() {
 
 		// ✅ FUTURE-PROOF: Generic tunnel endpoint
 		mux.Handle("/vpn/tunnel", auth.Middleware(jwtAuth,
-			http.HandlerFunc(handleVPNTunnel(httpTunnelMgr))))
+			http.HandlerFunc(handleVPNTunnel(httpTunnelMgr, protocolRouter))))
 
 		// ✅ BACKWARD COMPATIBLE: Keep old endpoint for existing clients
 		mux.Handle("/wireguard/tunnel", auth.Middleware(jwtAuth,
-			http.HandlerFunc(handleWireGuardTunnel(httpTunnelMgr))))
+			http.HandlerFunc(handleWireGuardTunnel(httpTunnelMgr, protocolRouter))))
 
 		// Existing WireGuard management endpoints
 		mux.HandleFunc("/wireguard/add-peer", handleWireGuardAddPeer(protocolRouter))
@@ -470,7 +470,7 @@ func handleWireGuardDisconnect(router *protocol.Router) func(http.ResponseWriter
 }
 
 // handleVPNTunnel establishes HTTP tunnel for any VPN protocol with mimicry
-func handleVPNTunnel(tunnelMgr *tunnel.HTTPTunnelManager) http.HandlerFunc {
+func handleVPNTunnel(tunnelMgr *tunnel.HTTPTunnelManager, protocolRouter *protocol.Router) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -509,7 +509,34 @@ func handleVPNTunnel(tunnelMgr *tunnel.HTTPTunnelManager) http.HandlerFunc {
 		// Validate VPN type
 		switch vpnType {
 		case "wireguard":
-			// Current implementation
+			// ✅ Get client's public key from header
+			clientPublicKey := r.Header.Get("X-WireGuard-PublicKey")
+			if clientPublicKey == "" {
+				log.Printf("❌ Missing X-WireGuard-PublicKey header")
+				http.Error(w, "Missing client public key", http.StatusBadRequest)
+				return
+			}
+
+			log.Printf("🔑 Client public key: %s...", clientPublicKey[:20])
+
+			// ✅ Add peer to WireGuard BEFORE establishing tunnel
+			wgMgr := protocolRouter.GetWireGuardHandler()
+			if wgMgr == nil {
+				log.Printf("❌ WireGuard not enabled")
+				http.Error(w, "WireGuard not enabled", http.StatusServiceUnavailable)
+				return
+			}
+
+			userIDString := fmt.Sprintf("%d", userClaims.UserID)
+			clientIP, err := wgMgr.AddPeer(userIDString, clientPublicKey)
+			if err != nil {
+				log.Printf("❌ Failed to add WireGuard peer: %v", err)
+				http.Error(w, "Failed to register peer", http.StatusInternalServerError)
+				return
+			}
+
+			log.Printf("✅ WireGuard peer added: %s (IP: %s)", clientPublicKey[:20]+"...", clientIP)
+
 		case "vless":
 			// TODO: Implement VLESS support
 			http.Error(w, "VLESS not yet implemented", http.StatusNotImplemented)
@@ -536,9 +563,9 @@ func handleVPNTunnel(tunnelMgr *tunnel.HTTPTunnelManager) http.HandlerFunc {
 }
 
 // handleWireGuardTunnel is backward compatible wrapper for old clients
-func handleWireGuardTunnel(tunnelMgr *tunnel.HTTPTunnelManager) http.HandlerFunc {
+func handleWireGuardTunnel(tunnelMgr *tunnel.HTTPTunnelManager, protocolRouter *protocol.Router) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Just call the generic handler with type=wireguard
-		handleVPNTunnel(tunnelMgr)(w, r)
+		handleVPNTunnel(tunnelMgr, protocolRouter)(w, r)
 	}
 }
